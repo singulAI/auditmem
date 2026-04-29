@@ -581,7 +581,7 @@ dias_gps = st.sidebar.slider(
     step=1,
 )
 
-processar = st.sidebar.button("🚀 Processar Auditoria", type="primary", use_container_width=True)
+processar = st.sidebar.button("🚀 Processar Auditoria", type="primary", width="stretch")
 
 # ---------------------------------------------------------------------------
 # Processamento
@@ -852,7 +852,7 @@ if len(df_chips_sobrepostos) > 0:
 
 with st.expander("🔁 Chips cobrados pela Base Principal e pela M2Data", expanded=False):
     if not df_chips_sobrepostos.empty:
-        st.dataframe(df_chips_sobrepostos, use_container_width=True, height=280)
+        st.dataframe(df_chips_sobrepostos, width="stretch", height=280)
     else:
         st.success("Nenhuma sobreposição de cobrança de chips identificada entre os prestadores.")
 
@@ -874,7 +874,7 @@ with st.expander("📉 Itens classificados como inúteis", expanded=False):
         )
         if cols_inuteis:
             df_inuteis = df_inuteis[cols_inuteis + [c for c in df_inuteis.columns if c not in cols_inuteis]]
-        st.dataframe(_ordenar_para_triagem(df_inuteis), use_container_width=True, height=320)
+        st.dataframe(_ordenar_para_triagem(df_inuteis), width="stretch", height=320)
     else:
         st.success("Nenhum item inútil identificado pelos critérios atuais.")
 
@@ -973,7 +973,7 @@ df_exibir_ordenado = df_exibir[colunas_principais_presentes + restantes]
 
 st.dataframe(
     df_exibir_ordenado,
-    use_container_width=True,
+    width="stretch",
     height=500,
     column_config={
         "suspeito": st.column_config.CheckboxColumn("⚠️ Suspeito"),
@@ -1008,7 +1008,7 @@ with col_e2:
         data=para_csv_bytes(df_export),
         file_name="auditoria_cobranca_m2m.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",
     )
 
 col_e3, col_e4 = st.columns(2)
@@ -1018,7 +1018,7 @@ with col_e4:
         data=para_excel_bytes(df_export),
         file_name="auditoria_cobranca_m2m.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width="stretch",
     )
 
 # ---------------------------------------------------------------------------
@@ -1032,25 +1032,25 @@ with st.expander("📂 Dados brutos importados", expanded=False):
     with aba_disp:
         df_d = st.session_state.get("df_dispositivos")
         if df_d is not None and not df_d.empty:
-            st.dataframe(df_d, use_container_width=True)
+            st.dataframe(df_d, width="stretch")
         else:
             st.info("Nenhum dado de dispositivos carregado.")
     with aba_veic:
         df_v = st.session_state.get("df_veiculos")
         if df_v is not None and not df_v.empty:
-            st.dataframe(df_v, use_container_width=True)
+            st.dataframe(df_v, width="stretch")
         else:
             st.info("Nenhum dado de veículos carregado.")
     with aba_chips:
         df_c = st.session_state.get("df_chips")
         if df_c is not None and not df_c.empty:
-            st.dataframe(df_c, use_container_width=True)
+            st.dataframe(df_c, width="stretch")
         else:
             st.info("Nenhum dado de chips carregado.")
     with aba_usr:
         df_u = st.session_state.get("df_usuarios")
         if df_u is not None and not df_u.empty:
-            st.dataframe(df_u, use_container_width=True)
+            st.dataframe(df_u, width="stretch")
         else:
             st.info("Nenhum dado de usuários carregado (relatório opcional).")
 
@@ -1094,7 +1094,7 @@ with aba_div1:
         if colunas_sem_chip:
             df_sem_chip_view = df_sem_chip_view[colunas_sem_chip + [c for c in df_sem_chip_view.columns if c not in colunas_sem_chip]]
         st.caption(f"Total: **{len(df_dispositivos_sem_chip):,}**")
-        st.dataframe(df_sem_chip_view, use_container_width=True, height=350)
+        st.dataframe(df_sem_chip_view, width="stretch", height=350)
     else:
         st.success("Nenhum dispositivo sem chip identificado.")
 
@@ -1112,7 +1112,7 @@ with aba_div2:
                 colunas_chips_sem_disp + [c for c in df_chips_sem_disp_view.columns if c not in colunas_chips_sem_disp]
             ]
         st.caption(f"Total: **{len(df_chips_sem_dispositivo):,}**")
-        st.dataframe(df_chips_sem_disp_view, use_container_width=True, height=350)
+        st.dataframe(df_chips_sem_disp_view, width="stretch", height=350)
     else:
         st.success("Nenhum chip sem dispositivo identificado.")
 
@@ -1137,7 +1137,7 @@ with aba_div3:
         if colunas_dup:
             df_dup_view = df_dup_view[colunas_dup + [c for c in df_dup_view.columns if c not in colunas_dup]]
         st.caption(f"Total: **{len(df_duplicidades):,}**")
-        st.dataframe(df_dup_view, use_container_width=True, height=350)
+        st.dataframe(df_dup_view, width="stretch", height=350)
     else:
         st.success("Nenhuma duplicidade identificada.")
 
@@ -1151,8 +1151,8 @@ with aba_div4:
         df_status_view = df_status.copy()
         df_status_view["ordem"] = df_status_view[COL_AUD_STATUS_DISPOSITIVO].map({"INATIVO": 0, "ATIVO": 1}).fillna(2)
         df_status_view = df_status_view.sort_values(by=["ordem"], ascending=[True]).drop(columns=["ordem"])
-        st.dataframe(resumo_status, use_container_width=True, height=160)
-        st.dataframe(df_status_view, use_container_width=True, height=350)
+        st.dataframe(resumo_status, width="stretch", height=160)
+        st.dataframe(df_status_view, width="stretch", height=350)
     else:
         st.info("Status ativo/inativo indisponível para os dados atuais.")
 
