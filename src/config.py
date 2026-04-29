@@ -26,6 +26,7 @@ COL_DISP_IMEI = "imei"
 COL_DISP_ATIVO = "dispositivo_ativo"
 COL_DISP_ICCID = "iccid"
 COL_DISP_TELEFONE = "telefone_chip"
+COL_DISP_TELEFONE_CLIENTE = "telefone_cliente"
 COL_DISP_OPERADORA = "operadora"
 COL_DISP_ULTIMA_CONEXAO = "ultima_conexao_gps"
 COL_DISP_DATA_GPS = "data_ultimo_gps"
@@ -39,6 +40,7 @@ COLUNAS_DISPOSITIVOS = [
     COL_DISP_ATIVO,
     COL_DISP_ICCID,
     COL_DISP_TELEFONE,
+    COL_DISP_TELEFONE_CLIENTE,
     COL_DISP_OPERADORA,
     COL_DISP_ULTIMA_CONEXAO,
     COL_DISP_DATA_GPS,
@@ -131,7 +133,18 @@ FLAG_SEM_GPS_RECENTE = "flag_sem_gps_recente"
 FLAG_SEM_CHIP = "flag_sem_chip"
 FLAG_IMEI_DUPLICADO = "flag_imei_duplicado"
 FLAG_ICCID_DUPLICADO = "flag_iccid_duplicado"
+FLAG_TELEFONE_DUPLICADO = "flag_telefone_duplicado"
+FLAG_TELEFONE_CLIENTE_DUPLICADO = "flag_telefone_cliente_duplicado"
+FLAG_PLACA_DUPLICADA = "flag_placa_duplicada"
 FLAG_VEICULO_DESATIVADO = "flag_veiculo_desativado"
+
+# Coluna derivada para visualização do status operacional do dispositivo
+COL_AUD_STATUS_DISPOSITIVO = "status_dispositivo"
+COL_AUD_CHIP_ENCONTRADO = "chip_encontrado"
+COL_AUD_RISCO_COBRANCA = "risco_cobranca"
+COL_AUD_MOTIVOS_COBRANCA = "motivos_cobranca"
+COL_AUD_RISCO_CADASTRO = "risco_cadastro"
+COL_AUD_MOTIVOS_CADASTRO = "motivos_cadastro"
 
 FLAGS_AUDITORIA = [
     FLAG_DISPOSITIVO_INATIVO,
@@ -140,7 +153,26 @@ FLAGS_AUDITORIA = [
     FLAG_SEM_CHIP,
     FLAG_IMEI_DUPLICADO,
     FLAG_ICCID_DUPLICADO,
+    FLAG_TELEFONE_DUPLICADO,
+    FLAG_TELEFONE_CLIENTE_DUPLICADO,
+    FLAG_PLACA_DUPLICADA,
     FLAG_VEICULO_DESATIVADO,
+]
+
+FLAGS_COBRANCA = [
+    FLAG_DISPOSITIVO_INATIVO,
+    FLAG_SEM_PLACA,
+    FLAG_SEM_GPS_RECENTE,
+    FLAG_SEM_CHIP,
+    FLAG_IMEI_DUPLICADO,
+    FLAG_ICCID_DUPLICADO,
+    FLAG_TELEFONE_DUPLICADO,
+    FLAG_PLACA_DUPLICADA,
+    FLAG_VEICULO_DESATIVADO,
+]
+
+FLAGS_CADASTRAIS = [
+    FLAG_TELEFONE_CLIENTE_DUPLICADO,
 ]
 
 # ---------------------------------------------------------------------------
@@ -150,7 +182,16 @@ FLAGS_AUDITORIA = [
 DIAS_SEM_GPS = 30
 
 # Valores aceitos como "ativo" na coluna de ativação do dispositivo
-VALORES_ATIVO = {"ativo", "active", "sim", "yes", "1", "true", "s"}
+VALORES_ATIVO = {
+    "ativo",
+    "active",
+    "sim",
+    "yes",
+    "1",
+    "true",
+    "verdadeiro",
+    "s",
+}
 
 # ---------------------------------------------------------------------------
 # Nomes de arquivos de saída

@@ -13,20 +13,33 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from src.config import (
+    COL_AUD_CHIP_ENCONTRADO,
+    COL_AUD_MOTIVOS_CADASTRO,
+    COL_AUD_MOTIVOS_COBRANCA,
+    COL_AUD_RISCO_CADASTRO,
+    COL_AUD_RISCO_COBRANCA,
+    COL_AUD_STATUS_DISPOSITIVO,
     DIAS_SEM_GPS,
     FLAG_DISPOSITIVO_INATIVO,
     FLAG_ICCID_DUPLICADO,
     FLAG_IMEI_DUPLICADO,
+    FLAG_PLACA_DUPLICADA,
     FLAG_SEM_CHIP,
     FLAG_SEM_GPS_RECENTE,
     FLAG_SEM_PLACA,
+    FLAG_TELEFONE_CLIENTE_DUPLICADO,
+    FLAG_TELEFONE_DUPLICADO,
     FLAG_VEICULO_DESATIVADO,
+    FLAGS_CADASTRAIS,
+    FLAGS_COBRANCA,
     VALORES_ATIVO,
     COL_DISP_ATIVO,
     COL_DISP_DATA_GPS,
     COL_DISP_ICCID,
     COL_DISP_IMEI,
     COL_DISP_PLACA,
+    COL_DISP_TELEFONE,
+    COL_DISP_TELEFONE_CLIENTE,
     COL_VEIC_DATA_DESATIVACAO,
 )
 
@@ -112,12 +125,25 @@ def identificar_sem_chip(df: pd.DataFrame) -> pd.DataFrame:
     Marca dispositivos sem chip (ICCID ausente ou vazio).
     """
     df = df.copy()
+    sem_iccid = pd.Series([True] * len(df), index=df.index)
     if COL_DISP_ICCID in df.columns:
-        df[FLAG_SEM_CHIP] = df[COL_DISP_ICCID].apply(
+        sem_iccid = df[COL_DISP_ICCID].apply(
             lambda v: str(v).strip() == "" if pd.notna(v) else True
         )
+
+    sem_telefone_chip = pd.Series([True] * len(df), index=df.index)
+    if COL_DISP_TELEFONE in df.columns:
+        sem_telefone_chip = df[COL_DISP_TELEFONE].apply(
+            lambda v: str(v).strip() == "" if pd.notna(v) else True
+        )
+
+    sem_identificador_chip = sem_iccid & sem_telefone_chip
+
+    if COL_AUD_CHIP_ENCONTRADO in df.columns:
+        chip_nao_encontrado = ~df[COL_AUD_CHIP_ENCONTRADO].fillna(False).astype(bool)
+        df[FLAG_SEM_CHIP] = sem_identificador_chip | chip_nao_encontrado
     else:
-        df[FLAG_SEM_CHIP] = True
+        df[FLAG_SEM_CHIP] = sem_identificador_chip
     return df
 
 
@@ -155,6 +181,56 @@ def identificar_iccids_duplicados(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def identificar_telefones_duplicados(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Marca registros cujo telefone do chip aparece mais de uma vez.
+    Telefones vazios não são marcados como duplicados.
+    """
+    df = df.copy()
+    if COL_DISP_TELEFONE in df.columns:
+        telefone_valido = df[COL_DISP_TELEFONE].apply(
+            lambda v: str(v).strip() != "" and pd.notna(v)
+        )
+        duplicados = df[COL_DISP_TELEFONE].duplicated(keep=False) & telefone_valido
+        df[FLAG_TELEFONE_DUPLICADO] = duplicados
+    else:
+        df[FLAG_TELEFONE_DUPLICADO] = False
+    return df
+
+
+def identificar_telefones_cliente_duplicados(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Marca duplicidade de telefone de cliente (uso cadastral, não técnico de chip).
+    """
+    df = df.copy()
+    if COL_DISP_TELEFONE_CLIENTE in df.columns:
+        telefone_valido = df[COL_DISP_TELEFONE_CLIENTE].apply(
+            lambda v: str(v).strip() != "" and pd.notna(v)
+        )
+        duplicados = df[COL_DISP_TELEFONE_CLIENTE].duplicated(keep=False) & telefone_valido
+        df[FLAG_TELEFONE_CLIENTE_DUPLICADO] = duplicados
+    else:
+        df[FLAG_TELEFONE_CLIENTE_DUPLICADO] = False
+    return df
+
+
+def identificar_placas_duplicadas(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Marca registros cuja placa aparece mais de uma vez.
+    Placas vazias não são marcadas como duplicadas.
+    """
+    df = df.copy()
+    if COL_DISP_PLACA in df.columns:
+        placa_valida = df[COL_DISP_PLACA].apply(
+            lambda v: str(v).strip() != "" and pd.notna(v)
+        )
+        duplicados = df[COL_DISP_PLACA].duplicated(keep=False) & placa_valida
+        df[FLAG_PLACA_DUPLICADA] = duplicados
+    else:
+        df[FLAG_PLACA_DUPLICADA] = False
+    return df
+
+
 def identificar_veiculos_desativados(df: pd.DataFrame) -> pd.DataFrame:
     """
     Marca registros vinculados a veículos com data de desativação preenchida.
@@ -166,6 +242,75 @@ def identificar_veiculos_desativados(df: pd.DataFrame) -> pd.DataFrame:
         )
     else:
         df[FLAG_VEICULO_DESATIVADO] = False
+    return df
+
+
+def classificar_status_dispositivo(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Cria a coluna de status textual do dispositivo para facilitar a auditoria.
+    """
+    df = df.copy()
+    if FLAG_DISPOSITIVO_INATIVO in df.columns:
+        df[COL_AUD_STATUS_DISPOSITIVO] = df[FLAG_DISPOSITIVO_INATIVO].map(
+            lambda inativo: "INATIVO" if bool(inativo) else "ATIVO"
+        )
+    else:
+        df[COL_AUD_STATUS_DISPOSITIVO] = "INDEFINIDO"
+    return df
+
+
+def _montar_motivos(df: pd.DataFrame, mapa_labels: dict[str, str], flags: list[str]) -> pd.Series:
+    """Monta texto de motivos com base nas flags ativas em cada linha."""
+    flags_presentes = [f for f in flags if f in df.columns]
+    if not flags_presentes:
+        return pd.Series([""] * len(df), index=df.index)
+
+    def _motivos_linha(linha: pd.Series) -> str:
+        ativos = [mapa_labels[f] for f in flags_presentes if bool(linha.get(f, False))]
+        return "; ".join(ativos)
+
+    return df.apply(_motivos_linha, axis=1)
+
+
+def classificar_riscos(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Classifica risco de cobrança e risco cadastral em eixos independentes.
+    """
+    df = df.copy()
+
+    flags_cobranca_presentes = [f for f in FLAGS_COBRANCA if f in df.columns]
+    flags_cadastro_presentes = [f for f in FLAGS_CADASTRAIS if f in df.columns]
+
+    if flags_cobranca_presentes:
+        risco_cobranca = df[flags_cobranca_presentes].any(axis=1)
+    else:
+        risco_cobranca = pd.Series([False] * len(df), index=df.index)
+
+    if flags_cadastro_presentes:
+        risco_cadastro = df[flags_cadastro_presentes].any(axis=1)
+    else:
+        risco_cadastro = pd.Series([False] * len(df), index=df.index)
+
+    df[COL_AUD_RISCO_COBRANCA] = risco_cobranca.map(lambda v: "ALTO" if bool(v) else "BAIXO")
+    df[COL_AUD_RISCO_CADASTRO] = risco_cadastro.map(lambda v: "ALTO" if bool(v) else "BAIXO")
+
+    mapa_cobranca = {
+        FLAG_DISPOSITIVO_INATIVO: "Dispositivo inativo",
+        FLAG_SEM_PLACA: "Sem placa",
+        FLAG_SEM_GPS_RECENTE: "Sem GPS recente",
+        FLAG_SEM_CHIP: "Sem chip",
+        FLAG_IMEI_DUPLICADO: "IMEI duplicado",
+        FLAG_ICCID_DUPLICADO: "ICCID duplicado",
+        FLAG_TELEFONE_DUPLICADO: "Telefone do chip duplicado",
+        FLAG_PLACA_DUPLICADA: "Placa duplicada",
+        FLAG_VEICULO_DESATIVADO: "Veículo desativado",
+    }
+    mapa_cadastro = {
+        FLAG_TELEFONE_CLIENTE_DUPLICADO: "Telefone do cliente duplicado",
+    }
+
+    df[COL_AUD_MOTIVOS_COBRANCA] = _montar_motivos(df, mapa_cobranca, FLAGS_COBRANCA)
+    df[COL_AUD_MOTIVOS_CADASTRO] = _montar_motivos(df, mapa_cadastro, FLAGS_CADASTRAIS)
     return df
 
 
@@ -201,17 +346,14 @@ def aplicar_todas_regras(
     df = identificar_sem_chip(df)
     df = identificar_imeis_duplicados(df)
     df = identificar_iccids_duplicados(df)
+    df = identificar_telefones_duplicados(df)
+    df = identificar_telefones_cliente_duplicados(df)
+    df = identificar_placas_duplicadas(df)
     df = identificar_veiculos_desativados(df)
+    df = classificar_status_dispositivo(df)
+    df = classificar_riscos(df)
 
-    flags = [
-        FLAG_DISPOSITIVO_INATIVO,
-        FLAG_SEM_PLACA,
-        FLAG_SEM_GPS_RECENTE,
-        FLAG_SEM_CHIP,
-        FLAG_IMEI_DUPLICADO,
-        FLAG_ICCID_DUPLICADO,
-        FLAG_VEICULO_DESATIVADO,
-    ]
+    flags = FLAGS_COBRANCA
     flags_presentes = [f for f in flags if f in df.columns]
     if flags_presentes:
         df["suspeito"] = df[flags_presentes].any(axis=1)

@@ -191,6 +191,113 @@ Consulte [`docs/criterios_auditoria.md`](docs/criterios_auditoria.md) para a des
 
 ---
 
+## Regra crítica: não confundir telefone do chip com telefone do cliente
+
+O sistema deve separar rigorosamente os telefones M2M dos telefones de clientes/usuários.
+
+### Telefone do chip
+
+Representa a linha instalada no rastreador/dispositivo M2M.
+
+Nomes de coluna esperados:
+
+```text
+Número de telefone do chip
+Telefone do chip
+Linha do chip
+MSISDN do chip
+```
+
+Nome interno recomendado:
+
+```text
+telefone_chip
+```
+
+Esse campo deve ser usado para:
+
+```text
+Identificar chip M2M
+Validar vínculo chip → dispositivo
+Encontrar telefone de chip duplicado
+Comparar cobrança da operadora
+Verificar chip sem uso
+Verificar chip sem dispositivo
+```
+
+### Telefone do cliente
+
+Representa o telefone pessoal ou comercial do usuário/associado.
+
+Nomes de coluna esperados:
+
+```text
+Telefone 1 do usuário
+Telefone 2 do usuário
+Telefones dos usuários
+Telefone do cliente
+Celular do cliente
+```
+
+Nome interno recomendado:
+
+```text
+telefone_cliente
+```
+
+Esse campo deve ser usado apenas para:
+
+```text
+Contato com o cliente
+Validação cadastral do usuário
+Identificação de usuário duplicado
+Conferência de cadastro
+```
+
+## Proibição de cruzamento incorreto
+
+Nunca usar `telefone_cliente` para identificar chip.
+
+Nunca usar `telefone_cliente` para decidir se um chip está duplicado.
+
+Nunca usar `telefone_cliente` para contestar cobrança de M2M.
+
+Nunca misturar:
+
+```text
+telefone_chip != telefone_cliente
+```
+
+Mesmo que ambos tenham formato parecido, eles representam coisas diferentes.
+
+## Cruzamento correto
+
+O vínculo correto deve ser:
+
+```text
+Placa
+    ↓
+IMEI do dispositivo
+    ↓
+Número de série do chip / ICCID
+    ↓
+Número de telefone do chip
+    ↓
+Operadora do chip
+```
+
+O telefone do cliente fica fora dessa cadeia técnica:
+
+```text
+Usuário / Cliente
+    ↓
+Telefone do cliente
+```
+
+O telefone do cliente pode ajudar a identificar o proprietário do veículo, mas não deve ser usado como prova de vínculo técnico entre chip, rastreador e cobrança.
+
+---
+
 ## Dependências principais
 
 | Pacote | Uso |

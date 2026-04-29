@@ -9,6 +9,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.config import (
+    COL_AUD_CHIP_ENCONTRADO,
     COL_CHIP_ICCID,
     COL_CHIP_IMEI,
     COL_CHIP_OPERADORA,
@@ -18,12 +19,49 @@ from src.config import (
     COL_DISP_IMEI,
     COL_DISP_NOME,
     COL_DISP_PLACA,
+    COL_DISP_TELEFONE,
     COL_DISP_USUARIO,
     COL_VEIC_DATA_DESATIVACAO,
     COL_VEIC_MARCA,
     COL_VEIC_MODELO,
     COL_VEIC_PLACA,
 )
+
+
+def _serie_chave(df: pd.DataFrame, coluna: str) -> pd.Series:
+    """Retorna série normalizada para uso como chave de cruzamento."""
+    if coluna not in df.columns:
+        return pd.Series([""] * len(df), index=df.index)
+    return df[coluna].astype(str).str.strip()
+
+
+def _escolher_chave_chip(df_disp: pd.DataFrame, df_chips: pd.DataFrame) -> tuple[str, str] | None:
+    """Escolhe automaticamente a melhor chave para cruzar dispositivos e chips."""
+    candidatos = [
+        (COL_DISP_ICCID, COL_CHIP_ICCID),
+        (COL_DISP_TELEFONE, COL_CHIP_TELEFONE),
+    ]
+
+    melhor: tuple[str, str] | None = None
+    melhor_score: tuple[int, int, int] | None = None
+
+    for col_disp, col_chip in candidatos:
+        if col_disp not in df_disp.columns or col_chip not in df_chips.columns:
+            continue
+
+        serie_disp = _serie_chave(df_disp, col_disp)
+        serie_chip = _serie_chave(df_chips, col_chip)
+
+        set_disp = {v for v in serie_disp.tolist() if v}
+        set_chip = {v for v in serie_chip.tolist() if v}
+        intersecao = len(set_disp & set_chip)
+        score = (intersecao, len(set_chip), len(set_disp))
+
+        if melhor_score is None or score > melhor_score:
+            melhor_score = score
+            melhor = (col_disp, col_chip)
+
+    return melhor
 
 
 def cruzar_dispositivos_veiculos(
@@ -56,6 +94,9 @@ def cruzar_dispositivos_veiculos(
             colunas_veic.append(col)
 
     df_veic_sel = df_veic[colunas_veic].copy()
+    if COL_VEIC_PLACA in df_veic_sel.columns:
+        # Evita multiplicação de linhas quando há mais de um veículo por placa.
+        df_veic_sel = df_veic_sel.drop_duplicates(subset=[COL_VEIC_PLACA])
 
     # Evita duplicar coluna 'placa' já existente no dispositivo
     merged = df_disp.merge(
@@ -99,27 +140,44 @@ def cruzar_dispositivos_chips(
     if df_disp.empty or df_chips.empty:
         return df_disp.copy()
 
-    colunas_chip = [COL_CHIP_ICCID]
+    chave = _escolher_chave_chip(df_disp, df_chips)
+    if chave is None:
+        resultado = df_disp.copy()
+        resultado[COL_AUD_CHIP_ENCONTRADO] = False
+        return resultado.reset_index(drop=True)
+
+    col_disp, col_chip = chave
+
+    colunas_chip = [col_chip]
+    if COL_CHIP_ICCID in df_chips.columns and COL_CHIP_ICCID not in colunas_chip:
+        colunas_chip.append(COL_CHIP_ICCID)
     for col in (COL_CHIP_TELEFONE, COL_CHIP_OPERADORA):
         if col in df_chips.columns:
             colunas_chip.append(col)
+    colunas_chip = list(dict.fromkeys(colunas_chip))
 
-    df_chips_sel = df_chips[colunas_chip].drop_duplicates(
-        subset=[COL_CHIP_ICCID]
-    ).copy()
+    df_chips_sel = df_chips[colunas_chip].copy()
+    chave_chip = df_chips_sel[col_chip].astype(str).str.strip()
+    df_chips_sel = df_chips_sel[chave_chip != ""].drop_duplicates(subset=[col_chip]).copy()
+    df_chips_sel[COL_AUD_CHIP_ENCONTRADO] = True
 
     merged = df_disp.merge(
         df_chips_sel,
-        left_on=COL_DISP_ICCID,
-        right_on=COL_CHIP_ICCID,
+        left_on=col_disp,
+        right_on=col_chip,
         how="left",
         suffixes=("", "_chip_ref"),
     )
 
     # Remove colunas duplicadas (iccid_chip_ref se criar)
-    iccid_ref = f"{COL_CHIP_ICCID}_chip_ref"
-    if iccid_ref in merged.columns:
-        merged = merged.drop(columns=[iccid_ref])
+    chave_ref = f"{col_chip}_chip_ref"
+    if chave_ref in merged.columns:
+        merged = merged.drop(columns=[chave_ref])
+
+    if COL_AUD_CHIP_ENCONTRADO in merged.columns:
+        merged[COL_AUD_CHIP_ENCONTRADO] = merged[COL_AUD_CHIP_ENCONTRADO].fillna(False).astype(bool)
+    else:
+        merged[COL_AUD_CHIP_ENCONTRADO] = False
 
     return merged.reset_index(drop=True)
 
@@ -158,3 +216,44 @@ def cruzar_completo(
         resultado = cruzar_dispositivos_chips(resultado, df_chips)
 
     return resultado.reset_index(drop=True)
+
+
+def listar_dispositivos_sem_chip(df_disp: pd.DataFrame) -> pd.DataFrame:
+    """
+    Retorna os dispositivos sem ICCID (sem chip vinculado).
+    """
+    if df_disp.empty or COL_DISP_ICCID not in df_disp.columns:
+        return pd.DataFrame(columns=df_disp.columns)
+
+    sem_chip = df_disp[df_disp[COL_DISP_ICCID].astype(str).str.strip() == ""].copy()
+    return sem_chip.reset_index(drop=True)
+
+
+def listar_chips_sem_dispositivo(
+    df_disp: pd.DataFrame,
+    df_chips: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Retorna chips sem vínculo com dispositivos usando a melhor chave disponível
+    (ICCID ou telefone do chip).
+    """
+    if df_chips.empty:
+        return pd.DataFrame(columns=df_chips.columns)
+
+    chave = _escolher_chave_chip(df_disp, df_chips)
+    if chave is None:
+        return pd.DataFrame(columns=df_chips.columns)
+    col_disp, col_chip = chave
+
+    chaves_disp = set()
+    if not df_disp.empty and col_disp in df_disp.columns:
+        chaves_disp = {
+            v
+            for v in df_disp[col_disp].astype(str).str.strip().tolist()
+            if v
+        }
+
+    serie_chips = df_chips[col_chip].astype(str).str.strip()
+    mascara = serie_chips.ne("") & ~serie_chips.isin(chaves_disp)
+    chips_sem_disp = df_chips[mascara].copy()
+    return chips_sem_disp.reset_index(drop=True)

@@ -87,9 +87,10 @@ def exportar_excel(
             worksheet.write(0, col_num, col_name, fmt_header)
 
         # Ajusta largura das colunas
-        str_df = df.astype(str)
         for col_num, col_name in enumerate(df.columns):
-            largura = max(len(str(col_name)), str_df[col_name].map(len).max())
+            serie = df[col_name]
+            max_conteudo = serie.map(lambda v: len(str(v)) if pd.notna(v) else 0).max()
+            largura = max(len(str(col_name)), int(max_conteudo) if pd.notna(max_conteudo) else 0)
             largura = min(max(largura + 2, 10), 60)  # limita entre 10 e 60
             worksheet.set_column(col_num, col_num, largura)
 
@@ -120,9 +121,10 @@ def para_excel_bytes(df: pd.DataFrame, nome_aba: str = "Auditoria M2M") -> bytes
         for col_num, col_name in enumerate(df.columns):
             worksheet.write(0, col_num, col_name, fmt_header)
 
-        str_df = df.astype(str)
         for col_num, col_name in enumerate(df.columns):
-            largura = max(len(str(col_name)), str_df[col_name].map(len).max())
+            serie = df[col_name]
+            max_conteudo = serie.map(lambda v: len(str(v)) if pd.notna(v) else 0).max()
+            largura = max(len(str(col_name)), int(max_conteudo) if pd.notna(max_conteudo) else 0)
             largura = min(max(largura + 2, 10), 60)
             worksheet.set_column(col_num, col_num, largura)
 

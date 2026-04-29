@@ -18,6 +18,7 @@ from src.config import (
     COL_DISP_IMEI,
     COL_DISP_PLACA,
     COL_DISP_TELEFONE,
+    COL_DISP_TELEFONE_CLIENTE,
     COL_VEIC_IMEI,
     COL_VEIC_PLACA,
     COLUNAS_CHIPS,
@@ -88,6 +89,7 @@ def normalizar_dataframe_dispositivos(df: pd.DataFrame) -> pd.DataFrame:
     df[COL_DISP_IMEI] = df[COL_DISP_IMEI].apply(normalizar_imei)
     df[COL_DISP_ICCID] = df[COL_DISP_ICCID].apply(normalizar_iccid)
     df[COL_DISP_TELEFONE] = df[COL_DISP_TELEFONE].apply(normalizar_telefone)
+    df[COL_DISP_TELEFONE_CLIENTE] = df[COL_DISP_TELEFONE_CLIENTE].apply(normalizar_telefone)
     df[COL_DISP_PLACA] = df[COL_DISP_PLACA].apply(normalizar_placa)
     # Tenta converter coluna de data do GPS para datetime
     if COL_DISP_DATA_GPS in df.columns:
