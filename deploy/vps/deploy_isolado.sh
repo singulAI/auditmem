@@ -27,6 +27,8 @@ python3 -m venv "$APP_DIR/.venv"
 
 echo "[4/8] Aplicando permissao segura"
 chown -R www-data:www-data "$APP_DIR"
+mkdir -p "$APP_DIR/.streamlit"
+chown -R www-data:www-data "$APP_DIR/.streamlit"
 
 echo "[5/8] Instalando unit systemd"
 cp "$APP_DIR/deploy/systemd/auditoria-m2m.service" "/etc/systemd/system/${SERVICE_NAME}.service"
@@ -37,6 +39,16 @@ systemctl restart "$SERVICE_NAME"
 echo "[6/8] Instalando configuracao Nginx isolada"
 cp "$APP_DIR/deploy/nginx/auditoria.anadm.site.conf" "/etc/nginx/sites-available/${NGINX_SITE}"
 ln -sf "/etc/nginx/sites-available/${NGINX_SITE}" "/etc/nginx/sites-enabled/${NGINX_SITE}"
+
+# Instala ou renova certificado SSL (seguro: nao afeta outros dominios)
+if certbot certificates 2>/dev/null | grep -q "auditoria.anadm.site"; then
+  echo "[6b/8] Certificado ja existe, reinjetando configuracao SSL no nginx"
+  certbot install --nginx --cert-name auditoria.anadm.site --non-interactive 2>/dev/null || true
+else
+  echo "[6b/8] Emitindo certificado novo"
+  certbot --nginx -d auditoria.anadm.site --redirect --non-interactive --agree-tos -m admin@anadm.site || true
+fi
+
 nginx -t
 systemctl reload nginx
 
