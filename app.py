@@ -7,6 +7,7 @@ Execute com:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 
@@ -457,6 +458,45 @@ def _ordenar_para_triagem(df: pd.DataFrame) -> pd.DataFrame:
 
 
 _injetar_tema_bi()
+
+# ---------------------------------------------------------------------------
+# Helpers de query params compatíveis com versões do Streamlit
+# ---------------------------------------------------------------------------
+
+def _get_query_params() -> dict[str, list[str]]:
+    for name in ("experimental_get_query_params", "get_query_params", "experimental_get_query_params"):
+        fn = getattr(st, name, None)
+        if callable(fn):
+            return fn()
+    return {}
+
+
+def _set_query_params(**params: str) -> None:
+    fn = getattr(st, "experimental_set_query_params", None) or getattr(st, "set_query_params", None)
+    if callable(fn):
+        fn(**params)
+
+
+# ---------------------------------------------------------------------------
+# Acesso restrito por senha
+# ---------------------------------------------------------------------------
+_SENHA_HASH = hashlib.sha256(b"@vrj2327").hexdigest()
+
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+if not st.session_state["authenticated"]:
+    col = st.columns([1, 2, 1])[1]
+    with col:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        senha_input = st.text_input("Senha de acesso", type="password", key="campo_senha")
+        if st.button("Entrar", type="primary", key="btn_entrar", use_container_width=True):
+            if hashlib.sha256(senha_input.encode()).hexdigest() == _SENHA_HASH:
+                st.session_state["authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta.")
+    st.stop()
 
 # ---------------------------------------------------------------------------
 # Sidebar — Upload de relatórios
@@ -1020,6 +1060,112 @@ with col_e4:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch",
     )
+
+# ---------------------------------------------------------------------------
+# Relatório narrativo com Ollama
+# ---------------------------------------------------------------------------
+st.divider()
+st.subheader("🤖 Relatório Executivo com IA")
+
+_OLLAMA_URL = "http://localhost:11434/api/generate"
+_OLLAMA_MODEL = "llama3"
+
+def _resumo_auditoria(df: "pd.DataFrame") -> str:
+    """Retorna um resumo textual compacto dos achados para o prompt."""
+    import json
+    total = len(df)
+    resumo: dict = {"total_registros": total}
+
+    if COL_AUD_RISCO_COBRANCA in df.columns:
+        freq = df[COL_AUD_RISCO_COBRANCA].value_counts().to_dict()
+        resumo["risco_cobranca"] = freq
+    if COL_AUD_RISCO_CADASTRO in df.columns:
+        freq2 = df[COL_AUD_RISCO_CADASTRO].value_counts().to_dict()
+        resumo["risco_cadastro"] = freq2
+    if COL_AUD_MOTIVOS_COBRANCA in df.columns:
+        motivos = df[COL_AUD_MOTIVOS_COBRANCA].dropna()
+        todos = []
+        for m in motivos:
+            todos.extend([x.strip() for x in str(m).split(";") if x.strip()])
+        from collections import Counter
+        top = dict(Counter(todos).most_common(10))
+        resumo["principais_motivos_cobranca"] = top
+    if COL_AUD_MOTIVOS_CADASTRO in df.columns:
+        motivos2 = df[COL_AUD_MOTIVOS_CADASTRO].dropna()
+        todos2 = []
+        for m in motivos2:
+            todos2.extend([x.strip() for x in str(m).split(";") if x.strip()])
+        from collections import Counter
+        top2 = dict(Counter(todos2).most_common(10))
+        resumo["principais_motivos_cadastro"] = top2
+    if "valor_mensal" in df.columns:
+        em_risco = df[df.get(COL_AUD_RISCO_COBRANCA, pd.Series(dtype=str)).isin(["alto", "médio"])]["valor_mensal"].sum() if COL_AUD_RISCO_COBRANCA in df.columns else 0
+        resumo["valor_estimado_em_risco_R$"] = round(float(em_risco), 2)
+
+    return json.dumps(resumo, ensure_ascii=False, indent=2)
+
+_PROMPT_TEMPLATE = """\
+Você é um auditor sênior de telecomunicações com foco em contratos M2M (Machine-to-Machine).
+Com base nos dados de auditoria abaixo, redija um RELATÓRIO EXECUTIVO em português brasileiro.
+
+O relatório deve conter:
+1. **Resumo executivo** (máximo 3 parágrafos)
+2. **Principais achados** (lista com os riscos mais críticos identificados)
+3. **Impacto financeiro estimado** (se disponível)
+4. **Recomendações objetivas** (ações concretas para corrigir as inconsistências)
+5. **Conclusão**
+
+Seja direto, use linguagem acessível para gestores não técnicos. Evite jargões desnecessários.
+
+DADOS DA AUDITORIA:
+{resumo}
+"""
+
+with st.expander("⚙️ Configuração do modelo", expanded=False):
+    ollama_modelo = st.text_input("Modelo Ollama", value=_OLLAMA_MODEL, key="ollama_model")
+    ollama_url = st.text_input("URL da API Ollama", value=_OLLAMA_URL, key="ollama_url")
+
+if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_relatorio"):
+    try:
+        import requests as _requests
+        resumo_txt = _resumo_auditoria(df_auditoria)
+        prompt = _PROMPT_TEMPLATE.format(resumo=resumo_txt)
+
+        with st.spinner("Gerando relatório... aguarde"):
+            resp = _requests.post(
+                st.session_state.get("ollama_url", _OLLAMA_URL),
+                json={
+                    "model": st.session_state.get("ollama_model", _OLLAMA_MODEL),
+                    "prompt": prompt,
+                    "stream": True,
+                },
+                stream=True,
+                timeout=120,
+            )
+            resp.raise_for_status()
+
+            relatorio_placeholder = st.empty()
+            texto_acumulado = ""
+            import json as _json
+            for linha in resp.iter_lines():
+                if linha:
+                    chunk = _json.loads(linha)
+                    texto_acumulado += chunk.get("response", "")
+                    relatorio_placeholder.markdown(texto_acumulado)
+                    if chunk.get("done"):
+                        break
+
+            st.session_state["ultimo_relatorio"] = texto_acumulado
+
+        st.download_button(
+            label="⬇️ Baixar Relatório (.txt)",
+            data=st.session_state["ultimo_relatorio"].encode("utf-8"),
+            file_name="relatorio_executivo_auditoria.txt",
+            mime="text/plain",
+        )
+
+    except Exception as _e:
+        st.error(f"Erro ao conectar ao Ollama: {_e}\n\nVerifique se o serviço está rodando: `ollama serve`")
 
 # ---------------------------------------------------------------------------
 # Abas para visualização dos dados brutos
