@@ -1071,70 +1071,82 @@ _OLLAMA_URL = "http://localhost:11434/api/generate"
 _OLLAMA_MODEL = "mistral"
 
 def _resumo_auditoria(df: "pd.DataFrame") -> str:
-    """Retorna um resumo textual compacto dos achados para o prompt."""
-    import json
+    """Retorna um resumo textual em linguagem natural para o prompt do modelo."""
+    from collections import Counter
     total = len(df)
-    resumo: dict = {"total_registros": total}
+    linhas = [f"Total de registros auditados: {total}"]
 
     if COL_AUD_RISCO_COBRANCA in df.columns:
-        freq = df[COL_AUD_RISCO_COBRANCA].value_counts().to_dict()
-        resumo["risco_cobranca"] = freq
-    if COL_AUD_RISCO_CADASTRO in df.columns:
-        freq2 = df[COL_AUD_RISCO_CADASTRO].value_counts().to_dict()
-        resumo["risco_cadastro"] = freq2
-    if COL_AUD_MOTIVOS_COBRANCA in df.columns:
-        motivos = df[COL_AUD_MOTIVOS_COBRANCA].dropna()
-        todos = []
-        for m in motivos:
-            todos.extend([x.strip() for x in str(m).split(";") if x.strip()])
-        from collections import Counter
-        top = dict(Counter(todos).most_common(10))
-        resumo["principais_motivos_cobranca"] = top
-    if COL_AUD_MOTIVOS_CADASTRO in df.columns:
-        motivos2 = df[COL_AUD_MOTIVOS_CADASTRO].dropna()
-        todos2 = []
-        for m in motivos2:
-            todos2.extend([x.strip() for x in str(m).split(";") if x.strip()])
-        from collections import Counter
-        top2 = dict(Counter(todos2).most_common(10))
-        resumo["principais_motivos_cadastro"] = top2
-    if "valor_mensal" in df.columns:
-        em_risco = df[df.get(COL_AUD_RISCO_COBRANCA, pd.Series(dtype=str)).isin(["alto", "médio"])]["valor_mensal"].sum() if COL_AUD_RISCO_COBRANCA in df.columns else 0
-        resumo["valor_estimado_em_risco_R$"] = round(float(em_risco), 2)
+        freq = df[COL_AUD_RISCO_COBRANCA].value_counts()
+        linhas.append("\nDistribuição de risco de COBRANÇA:")
+        for nivel, qtd in freq.items():
+            pct = round(qtd / total * 100, 1)
+            linhas.append(f"  - {nivel}: {qtd} registros ({pct}%)")
 
-    return json.dumps(resumo, ensure_ascii=False, indent=2)
+    if COL_AUD_RISCO_CADASTRO in df.columns:
+        freq2 = df[COL_AUD_RISCO_CADASTRO].value_counts()
+        linhas.append("\nDistribuição de risco de CADASTRO:")
+        for nivel, qtd in freq2.items():
+            pct = round(qtd / total * 100, 1)
+            linhas.append(f"  - {nivel}: {qtd} registros ({pct}%)")
+
+    if COL_AUD_MOTIVOS_COBRANCA in df.columns:
+        todos = []
+        for m in df[COL_AUD_MOTIVOS_COBRANCA].dropna():
+            todos.extend([x.strip() for x in str(m).split(";") if x.strip()])
+        if todos:
+            linhas.append("\nMotivos de divergência em COBRANÇA (top 10):")
+            for motivo, cnt in Counter(todos).most_common(10):
+                linhas.append(f"  - {motivo}: {cnt} ocorrências")
+
+    if COL_AUD_MOTIVOS_CADASTRO in df.columns:
+        todos2 = []
+        for m in df[COL_AUD_MOTIVOS_CADASTRO].dropna():
+            todos2.extend([x.strip() for x in str(m).split(";") if x.strip()])
+        if todos2:
+            linhas.append("\nMotivos de divergência em CADASTRO (top 10):")
+            for motivo, cnt in Counter(todos2).most_common(10):
+                linhas.append(f"  - {motivo}: {cnt} ocorrências")
+
+    if "valor_mensal" in df.columns and COL_AUD_RISCO_COBRANCA in df.columns:
+        mask = df[COL_AUD_RISCO_COBRANCA].isin(["alto", "médio"])
+        valor = df.loc[mask, "valor_mensal"].sum()
+        linhas.append(f"\nValor mensal estimado em risco (risco alto + médio): R$ {valor:,.2f}")
+    else:
+        linhas.append("\nValor financeiro: não disponível nos dados fornecidos.")
+
+    return "\n".join(linhas)
 
 _PROMPT_TEMPLATE = """\
-Você é um auditor forense de telecomunicações especializado em contratos M2M (Machine-to-Machine).
-Sua missão é redigir um RELATÓRIO DE AUDITORIA EXECUTIVO em português brasileiro com linguagem direta, contundente e sem rodeios.
+Você é um auditor forense de telecomunicações. Redija um RELATÓRIO DE AUDITORIA em português brasileiro.
 
-REGRAS OBRIGATÓRIAS:
-- Seja específico: cite números, quantidades e percentuais sempre que disponíveis
-- Destaque DIVERGÊNCIAS com clareza, usando frases como "IDENTIFICADO:", "DIVERGÊNCIA:", "ALERTA:"
-- Não suavize problemas — se há cobrança indevida, diga explicitamente
-- Linguagem acessível para gestores não técnicos (evite siglas sem explicação)
-- Seja objetivo: máximo 1 parágrafo por seção, exceto "Achados" que pode ter lista
+REGRAS CRÍTICAS — SIGA RIGOROSAMENTE:
+1. Use EXCLUSIVAMENTE os números e dados fornecidos abaixo. NUNCA invente valores, percentuais ou estimativas não presentes nos dados.
+2. Se um dado não estiver disponível, escreva explicitamente "não informado" — nunca use placeholders como "R$ XXXX".
+3. Cite sempre a quantidade exata de registros afetados por cada problema.
+4. Linguagem direta, sem rodeios, para gestores não técnicos.
+5. Máximo 800 palavras no total.
 
-ESTRUTURA DO RELATÓRIO:
+ESTRUTURA OBRIGATÓRIA:
 
-## 1. RESUMO EXECUTIVO
-Síntese do que foi encontrado e o impacto financeiro. Seja direto: se há problema, comece por ele.
+## RESUMO EXECUTIVO
+Dois parágrafos. Primeiro: o que foi auditado e quantos registros. Segundo: principal problema encontrado com números reais.
 
-## 2. DIVERGÊNCIAS IDENTIFICADAS
-Liste cada divergência encontrada no formato:
-- **[TIPO DE RISCO]**: descrição objetiva do problema + quantidade de registros afetados
+## DIVERGÊNCIAS IDENTIFICADAS
+Uma linha por tipo de problema, formato:
+- [MOTIVO EXATO DOS DADOS]: X registros afetados (Y% do total)
 
-## 3. IMPACTO FINANCEIRO
-Valor estimado em risco, cobranças indevidas identificadas e projeção mensal de perda.
+## IMPACTO FINANCEIRO
+Se valor disponível: cite o número exato. Se não disponível: diga "valor financeiro não informado nos dados" e recomende levantamento.
 
-## 4. RECOMENDAÇÕES IMEDIATAS
-Ações concretas e prioritárias, numeradas por urgência. Não coloque recomendações vagas.
+## RECOMENDAÇÕES (máximo 4)
+Numeradas, concretas, baseadas nos problemas reais encontrados.
 
-## 5. CONCLUSÃO
-Uma frase contundente sobre a situação geral e o que precisa ser feito.
+## CONCLUSÃO
+Uma frase direta sobre a gravidade e urgência.
 
 ---
-DADOS DA AUDITORIA:
+DADOS REAIS DA AUDITORIA (use apenas estes):
 {resumo}
 """
 
@@ -1145,40 +1157,34 @@ with st.expander("⚙️ Configuração do modelo", expanded=False):
 if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_relatorio"):
     try:
         import requests as _requests
+        import json as _json
         resumo_txt = _resumo_auditoria(df_auditoria)
         prompt = _PROMPT_TEMPLATE.format(resumo=resumo_txt)
 
-        st.info("⏳ Gerando relatório com IA local (pode levar 3–5 minutos em CPU). Aguarde sem fechar a página.")
-
-        with st.spinner("Processando com Mistral..."):
+        with st.spinner("Gerando relatório com IA... aguarde"):
             resp = _requests.post(
                 st.session_state.get("ollama_url", _OLLAMA_URL),
                 json={
                     "model": st.session_state.get("ollama_model", _OLLAMA_MODEL),
                     "prompt": prompt,
-                    "stream": True,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.2,
+                        "top_p": 0.85,
+                        "num_predict": 1024,
+                        "repeat_penalty": 1.1,
+                    },
                 },
-                stream=True,
                 timeout=600,
             )
             resp.raise_for_status()
-
-            relatorio_placeholder = st.empty()
-            texto_acumulado = ""
-            import json as _json
-            for linha in resp.iter_lines():
-                if linha:
-                    chunk = _json.loads(linha)
-                    texto_acumulado += chunk.get("response", "")
-                    relatorio_placeholder.markdown(texto_acumulado)
-                    if chunk.get("done"):
-                        break
-
+            texto_acumulado = resp.json().get("response", "")
             st.session_state["ultimo_relatorio"] = texto_acumulado
 
+        st.markdown(texto_acumulado)
         st.download_button(
             label="⬇️ Baixar Relatório (.txt)",
-            data=st.session_state["ultimo_relatorio"].encode("utf-8"),
+            data=texto_acumulado.encode("utf-8"),
             file_name="relatorio_executivo_auditoria.txt",
             mime="text/plain",
         )
