@@ -396,6 +396,18 @@ MAPEAMENTO_SIPROV: dict[str, list[str]] = {
         "associado_cpf_cnpj",
         "associado - cpf/cnpj",
     ],
+    "siprov_associado_telefone": [
+        "associado_telefone",
+        "associado_telefone_celular_primeiro",
+    ],
+    "siprov_plano_adicional": [
+        "beneficio_planos_adicionais",
+        "beneficio_planos_adicionais_nomes",
+    ],
+    "siprov_valor_plano": [
+        "beneficio_planos_principais_valor",
+        "beneficio_valor",
+    ],
     "siprov_associado_email": [
         "associado_email",
         "associado - email",
@@ -426,6 +438,7 @@ MAPEAMENTO_SIPROV: dict[str, list[str]] = {
     "siprov_placa": [
         "placa",
         "veiculo_placa",
+        "veiculo_placa_veiculo",
         "veículo - placa",
     ],
 }

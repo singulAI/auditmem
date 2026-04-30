@@ -55,6 +55,13 @@ from src.leitura_pdf import (
     ler_pdf_veiculos,
 )
 from src.regras_auditoria import aplicar_todas_regras
+def _pdf_export_disponivel() -> bool:
+    try:
+        import reportlab
+        return True
+    except:
+        return False
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -839,49 +846,59 @@ dias_gps = st.sidebar.slider(
     step=1,
 )
 
-processar = st.sidebar.button("🚀 Processar Auditoria", type="primary", width="stretch")
+col_proc1, col_proc2 = st.sidebar.columns(2)
+processar = col_proc1.button("🚀 Processar", type="primary", use_container_width=True)
+limpar = col_proc2.button("🗑️ Limpar Dados", use_container_width=True)
 
 # ---------------------------------------------------------------------------
-# Processamento
+# Processamento e Controle de Cache
 # ---------------------------------------------------------------------------
+if limpar:
+    for chave in SNAPSHOT_DATAFRAMES:
+        if chave in st.session_state:
+            st.session_state[chave] = None
+    if SNAPSHOT_PATH.exists():
+        SNAPSHOT_PATH.unlink()
+    st.rerun()
+
 if processar:
-    if arquivo_disp is None:
-        st.sidebar.error("⚠️ Envie o relatório de dispositivos da Base Principal (obrigatório).")
+    tem_disp = arquivo_disp is not None or (st.session_state.get("df_dispositivos") is not None and not st.session_state["df_dispositivos"].empty)
+    if not tem_disp:
+        st.sidebar.error("⚠️ Faça o upload do relatório de Dispositivos (Softruck) ao menos uma vez.")
     else:
-        with st.spinner("Lendo e processando os relatórios…"):
+        with st.spinner("Atualizando os dados e consolidando painel…"):
             try:
-                df_disp = ler_pdf_dispositivos(arquivo_disp)
-                st.session_state["df_dispositivos"] = df_disp
+                if arquivo_disp is not None:
+                    st.session_state["df_dispositivos"] = ler_pdf_dispositivos(arquivo_disp)
 
-                df_veic = None
-                if arquivo_veic:
-                    df_veic = ler_pdf_veiculos(arquivo_veic)
-                    st.session_state["df_veiculos"] = df_veic
+                if arquivo_veic is not None:
+                    st.session_state["df_veiculos"] = ler_pdf_veiculos(arquivo_veic)
 
-                df_chips = None
-                df_chips_m2 = None
-                if arquivo_chips or arquivo_chips_m2data:
-                    df_chips_base = ler_pdf_chips(arquivo_chips) if arquivo_chips else None
-                    df_chips_m2 = ler_pdf_chips(arquivo_chips_m2data) if arquivo_chips_m2data else None
-                    df_chips = _combinar_bases(df_chips_base, df_chips_m2)
-                    st.session_state["df_chips"] = df_chips
-                    st.session_state["df_chips_principal"] = df_chips_base if df_chips_base is not None else pd.DataFrame()
-                    st.session_state["df_chips_m2data"] = df_chips_m2
-                else:
-                    st.session_state["df_chips_principal"] = pd.DataFrame()
-                    st.session_state["df_chips_m2data"] = pd.DataFrame()
+                if arquivo_chips is not None:
+                    st.session_state["df_chips_principal"] = ler_pdf_chips(arquivo_chips)
+                
+                if arquivo_chips_m2data is not None:
+                    st.session_state["df_chips_m2data"] = ler_pdf_chips(arquivo_chips_m2data)
+                
+                if arquivo_chips is not None or arquivo_chips_m2data is not None or st.session_state.get("df_chips") is None:
+                    base = st.session_state.get("df_chips_principal")
+                    m2 = st.session_state.get("df_chips_m2data")
+                    if base is not None or m2 is not None:
+                        st.session_state["df_chips"] = _combinar_bases(base, m2)
+                    else:
+                        st.session_state["df_chips"] = None
 
-                df_usuarios = None
-                if arquivo_usuarios:
-                    df_usuarios = ler_pdf_usuarios(arquivo_usuarios)
-                    st.session_state["df_usuarios"] = df_usuarios
+                if arquivo_usuarios is not None:
+                    st.session_state["df_usuarios"] = ler_pdf_usuarios(arquivo_usuarios)
 
-                df_siprov = None
-                if arquivo_siprov:
-                    df_siprov = ler_pdf_siprov(arquivo_siprov)
-                    st.session_state["df_siprov"] = df_siprov
-                else:
-                    st.session_state["df_siprov"] = pd.DataFrame()
+                if arquivo_siprov is not None:
+                    st.session_state["df_siprov"] = ler_pdf_siprov(arquivo_siprov)
+
+                df_disp = st.session_state.get("df_dispositivos")
+                df_veic = st.session_state.get("df_veiculos")
+                df_chips = st.session_state.get("df_chips")
+                df_usuarios = st.session_state.get("df_usuarios")
+                df_siprov = st.session_state.get("df_siprov")
 
                 df_cruzado = cruzar_completo(df_disp, df_veic, df_chips)
                 df_cruzado = cruzar_com_siprov(df_cruzado, df_siprov, df_usuarios)
@@ -1490,12 +1507,6 @@ def _texto_para_pdf_bytes(texto: str, titulo: str = "Relatorio Executivo de Audi
     return buffer.getvalue()
 
 
-def _pdf_export_disponivel() -> bool:
-    try:
-        import reportlab  # noqa: F401
-        return True
-    except Exception:
-        return False
 
 
 def _possui_dados_financeiros(df: "pd.DataFrame") -> bool:
