@@ -1105,18 +1105,35 @@ def _resumo_auditoria(df: "pd.DataFrame") -> str:
     return json.dumps(resumo, ensure_ascii=False, indent=2)
 
 _PROMPT_TEMPLATE = """\
-Você é um auditor sênior de telecomunicações com foco em contratos M2M (Machine-to-Machine).
-Com base nos dados de auditoria abaixo, redija um RELATÓRIO EXECUTIVO em português brasileiro.
+Você é um auditor forense de telecomunicações especializado em contratos M2M (Machine-to-Machine).
+Sua missão é redigir um RELATÓRIO DE AUDITORIA EXECUTIVO em português brasileiro com linguagem direta, contundente e sem rodeios.
 
-O relatório deve conter:
-1. **Resumo executivo** (máximo 3 parágrafos)
-2. **Principais achados** (lista com os riscos mais críticos identificados)
-3. **Impacto financeiro estimado** (se disponível)
-4. **Recomendações objetivas** (ações concretas para corrigir as inconsistências)
-5. **Conclusão**
+REGRAS OBRIGATÓRIAS:
+- Seja específico: cite números, quantidades e percentuais sempre que disponíveis
+- Destaque DIVERGÊNCIAS com clareza, usando frases como "IDENTIFICADO:", "DIVERGÊNCIA:", "ALERTA:"
+- Não suavize problemas — se há cobrança indevida, diga explicitamente
+- Linguagem acessível para gestores não técnicos (evite siglas sem explicação)
+- Seja objetivo: máximo 1 parágrafo por seção, exceto "Achados" que pode ter lista
 
-Seja direto, use linguagem acessível para gestores não técnicos. Evite jargões desnecessários.
+ESTRUTURA DO RELATÓRIO:
 
+## 1. RESUMO EXECUTIVO
+Síntese do que foi encontrado e o impacto financeiro. Seja direto: se há problema, comece por ele.
+
+## 2. DIVERGÊNCIAS IDENTIFICADAS
+Liste cada divergência encontrada no formato:
+- **[TIPO DE RISCO]**: descrição objetiva do problema + quantidade de registros afetados
+
+## 3. IMPACTO FINANCEIRO
+Valor estimado em risco, cobranças indevidas identificadas e projeção mensal de perda.
+
+## 4. RECOMENDAÇÕES IMEDIATAS
+Ações concretas e prioritárias, numeradas por urgência. Não coloque recomendações vagas.
+
+## 5. CONCLUSÃO
+Uma frase contundente sobre a situação geral e o que precisa ser feito.
+
+---
 DADOS DA AUDITORIA:
 {resumo}
 """
