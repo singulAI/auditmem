@@ -58,78 +58,6 @@ from src.regras_auditoria import aplicar_todas_regras
 
 logging.basicConfig(level=logging.INFO)
 
-def _texto_para_pdf_bytes(texto: str, titulo: str = "Relatório Executivo de Auditoria") -> bytes:
-    """Converte texto simples para PDF em bytes."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-
-    buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=A4)
-    _, altura = A4
-
-    y = altura - 50
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(40, y, titulo)
-    y -= 28
-
-    pdf.setFont("Helvetica", 10)
-    for linha in texto.splitlines():
-        blocos = textwrap.wrap(linha, width=110) or [""]
-        for bloco in blocos:
-            if y < 40:
-                pdf.showPage()
-                pdf.setFont("Helvetica", 10)
-                y = altura - 40
-            pdf.drawString(40, y, bloco)
-            y -= 14
-
-    pdf.save()
-    return buffer.getvalue()
-
-def _pdf_export_disponivel() -> bool:
-    try:
-        import reportlab  # noqa: F401
-        return True
-    except Exception:
-        return False
-
-
-def _texto_para_pdf_bytes(texto: str, titulo: str = "Relatório Executivo de Auditoria") -> bytes:
-    """Converte texto simples para PDF em bytes."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-
-    buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=A4)
-    _, altura = A4
-
-    y = altura - 50
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(40, y, titulo)
-    y -= 28
-
-    pdf.setFont("Helvetica", 10)
-    for linha in texto.splitlines():
-        blocos = textwrap.wrap(linha, width=110) or [""]
-        for bloco in blocos:
-            if y < 40:
-                pdf.showPage()
-                pdf.setFont("Helvetica", 10)
-                y = altura - 40
-            pdf.drawString(40, y, bloco)
-            y -= 14
-
-    pdf.save()
-    return buffer.getvalue()
-
-def _pdf_export_disponivel() -> bool:
-    try:
-        import reportlab  # noqa: F401
-        return True
-    except Exception:
-        return False
-
-
 SNAPSHOT_PATH = Path(PROCESSADO_DIR) / "ultimo_cruzamento.pkl"
 SNAPSHOT_DATAFRAMES = [
     "df_dispositivos",
@@ -1186,10 +1114,9 @@ chips_vinculados_total = max(chips_total - chips_sem_disp_total, 0)
 
 contagem_flag = lambda f: int(df_auditoria[f].sum()) if f in df_auditoria.columns else 0
 
+tb_exec, tb_siprov, tb_financeiro, tb_dados = st.tabs(["Visão Executiva", "Auditoria SIPROV", "Impacto Financeiro", "Bases Analíticas"])
 
-tab1, tab2, tab3, tab4 = st.tabs(["Visão Executiva", "Auditoria SIPROV", "Impacto Financeiro", "Bases Analíticos"])
-
-with tab1:
+with tb_exec:
     st.markdown('<div class="bi-section-title">Pulse BI</div>', unsafe_allow_html=True)
 
     linha_1 = st.columns(5)
@@ -1216,8 +1143,7 @@ with tab1:
     with linha_2[4]:
         _card_kpi("ICCID duplicado", f"{contagem_flag(FLAG_ICCID_DUPLICADO):,}", "Conflito de chip", "sim", "warning")
 
-
-with tab2:
+with tb_siprov:
     st.markdown('<div class="bi-section-title">Conferência Oficial SIPROV</div>', unsafe_allow_html=True)
     s1, s2, s3, s4 = st.columns(4)
     with s1:
@@ -1274,8 +1200,7 @@ with tab2:
     # ---------------------------------------------------------------------------
     # Visão financeira e utilidade
     # ---------------------------------------------------------------------------
-
-with tab3:
+with tb_financeiro:
     st.subheader("Cobrança Real e Itens Úteis")
 
     f1, f2, f3 = st.columns(3)
@@ -1341,6 +1266,7 @@ with tab3:
     # ---------------------------------------------------------------------------
     # Filtros interativos
     # ---------------------------------------------------------------------------
+with tb_dados:
     st.subheader("Filtros")
 
     col_f1, col_f2, col_f3, col_f4, col_f5, col_f6 = st.columns(6)
@@ -1590,6 +1516,41 @@ with tab3:
     _OLLAMA_MODEL = "mistral"
 
 
+    def _texto_para_pdf_bytes(texto: str, titulo: str = "Relatorio Executivo de Auditoria") -> bytes:
+        """Converte texto simples para PDF em bytes."""
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+
+        buffer = io.BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        _, altura = A4
+
+        y = altura - 50
+        pdf.setFont("Helvetica-Bold", 14)
+        pdf.drawString(40, y, titulo)
+        y -= 28
+
+        pdf.setFont("Helvetica", 10)
+        for linha in texto.splitlines():
+            blocos = textwrap.wrap(linha, width=110) or [""]
+            for bloco in blocos:
+                if y < 40:
+                    pdf.showPage()
+                    pdf.setFont("Helvetica", 10)
+                    y = altura - 40
+                pdf.drawString(40, y, bloco)
+                y -= 14
+
+        pdf.save()
+        return buffer.getvalue()
+
+
+    def _pdf_export_disponivel() -> bool:
+        try:
+            import reportlab  # noqa: F401
+            return True
+        except Exception:
+            return False
 
 
     def _possui_dados_financeiros(df: "pd.DataFrame") -> bool:
@@ -1893,97 +1854,92 @@ with tab3:
     col_r2.metric("Chips vinculados", f"{chips_vinculados_total:,}")
     col_r3.metric("Chips sem dispositivo", f"{chips_sem_disp_total:,}")
 
-
-with tab4:
     aba_div1, aba_div2, aba_div3, aba_div4 = st.tabs(
-    [
-        "Dispositivos sem chip",
-        "Chips sem dispositivo",
-        "Duplicidades",
-        "Status ativo/inativo",
-    ]
-)
+        [
+            "Dispositivos sem chip",
+            "Chips sem dispositivo",
+            "Duplicidades",
+            "Status ativo/inativo",
+        ]
+    )
 
-with aba_div1:
-    if df_dispositivos_sem_chip is not None and not df_dispositivos_sem_chip.empty:
-        df_sem_chip_view = _ordenar_para_triagem(df_dispositivos_sem_chip)
-        colunas_sem_chip = _colunas_presentes(
-            df_sem_chip_view,
-            ["nome_dispositivo", "placa", "imei", "iccid", "telefone_chip", "operadora", COL_AUD_MOTIVOS_COBRANCA],
-        )
-        if colunas_sem_chip:
-            df_sem_chip_view = df_sem_chip_view[colunas_sem_chip + [c for c in df_sem_chip_view.columns if c not in colunas_sem_chip]]
-        st.caption(f"Total: **{len(df_dispositivos_sem_chip):,}**")
-        st.dataframe(df_sem_chip_view, width="stretch", height=350)
-    else:
-        st.success("Nenhum dispositivo sem chip identificado.")
+    with aba_div1:
+        if df_dispositivos_sem_chip is not None and not df_dispositivos_sem_chip.empty:
+            df_sem_chip_view = _ordenar_para_triagem(df_dispositivos_sem_chip)
+            colunas_sem_chip = _colunas_presentes(
+                df_sem_chip_view,
+                ["nome_dispositivo", "placa", "imei", "iccid", "telefone_chip", "operadora", COL_AUD_MOTIVOS_COBRANCA],
+            )
+            if colunas_sem_chip:
+                df_sem_chip_view = df_sem_chip_view[colunas_sem_chip + [c for c in df_sem_chip_view.columns if c not in colunas_sem_chip]]
+            st.caption(f"Total: **{len(df_dispositivos_sem_chip):,}**")
+            st.dataframe(df_sem_chip_view, width="stretch", height=350)
+        else:
+            st.success("Nenhum dispositivo sem chip identificado.")
 
-with aba_div2:
-    if df_chips_sem_dispositivo is not None and not df_chips_sem_dispositivo.empty:
-        df_chips_sem_disp_view = df_chips_sem_dispositivo.copy()
-        if "iccid" in df_chips_sem_disp_view.columns:
-            df_chips_sem_disp_view = df_chips_sem_disp_view.sort_values(by=["iccid"], kind="mergesort")
-        colunas_chips_sem_disp = _colunas_presentes(
-            df_chips_sem_disp_view,
-            ["iccid", "telefone", "operadora", "nome_dispositivo", "imei", "empresa"],
-        )
-        if colunas_chips_sem_disp:
-            df_chips_sem_disp_view = df_chips_sem_disp_view[
-                colunas_chips_sem_disp + [c for c in df_chips_sem_disp_view.columns if c not in colunas_chips_sem_disp]
-            ]
-        st.caption(f"Total: **{len(df_chips_sem_dispositivo):,}**")
-        st.dataframe(df_chips_sem_disp_view, width="stretch", height=350)
-    else:
-        st.success("Nenhum chip sem dispositivo identificado.")
+    with aba_div2:
+        if df_chips_sem_dispositivo is not None and not df_chips_sem_dispositivo.empty:
+            df_chips_sem_disp_view = df_chips_sem_dispositivo.copy()
+            if "iccid" in df_chips_sem_disp_view.columns:
+                df_chips_sem_disp_view = df_chips_sem_disp_view.sort_values(by=["iccid"], kind="mergesort")
+            colunas_chips_sem_disp = _colunas_presentes(
+                df_chips_sem_disp_view,
+                ["iccid", "telefone", "operadora", "nome_dispositivo", "imei", "empresa"],
+            )
+            if colunas_chips_sem_disp:
+                df_chips_sem_disp_view = df_chips_sem_disp_view[
+                    colunas_chips_sem_disp + [c for c in df_chips_sem_disp_view.columns if c not in colunas_chips_sem_disp]
+                ]
+            st.caption(f"Total: **{len(df_chips_sem_dispositivo):,}**")
+            st.dataframe(df_chips_sem_disp_view, width="stretch", height=350)
+        else:
+            st.success("Nenhum chip sem dispositivo identificado.")
 
-with aba_div3:
-    if df_duplicidades is not None and not df_duplicidades.empty:
-        df_dup_view = _ordenar_para_triagem(df_duplicidades)
-        colunas_dup = _colunas_presentes(
-            df_dup_view,
-            [
-                "placa",
-                "imei",
-                "iccid",
-                "telefone_chip",
-                "telefone_cliente",
-                FLAG_IMEI_DUPLICADO,
-                FLAG_ICCID_DUPLICADO,
-                FLAG_TELEFONE_DUPLICADO,
-                FLAG_TELEFONE_CLIENTE_DUPLICADO,
-                FLAG_PLACA_DUPLICADA,
-            ],
-        )
-        if colunas_dup:
-            df_dup_view = df_dup_view[colunas_dup + [c for c in df_dup_view.columns if c not in colunas_dup]]
-        st.caption(f"Total: **{len(df_duplicidades):,}**")
-        st.dataframe(df_dup_view, width="stretch", height=350)
-    else:
-        st.success("Nenhuma duplicidade identificada.")
+    with aba_div3:
+        if df_duplicidades is not None and not df_duplicidades.empty:
+            df_dup_view = _ordenar_para_triagem(df_duplicidades)
+            colunas_dup = _colunas_presentes(
+                df_dup_view,
+                [
+                    "placa",
+                    "imei",
+                    "iccid",
+                    "telefone_chip",
+                    "telefone_cliente",
+                    FLAG_IMEI_DUPLICADO,
+                    FLAG_ICCID_DUPLICADO,
+                    FLAG_TELEFONE_DUPLICADO,
+                    FLAG_TELEFONE_CLIENTE_DUPLICADO,
+                    FLAG_PLACA_DUPLICADA,
+                ],
+            )
+            if colunas_dup:
+                df_dup_view = df_dup_view[colunas_dup + [c for c in df_dup_view.columns if c not in colunas_dup]]
+            st.caption(f"Total: **{len(df_duplicidades):,}**")
+            st.dataframe(df_dup_view, width="stretch", height=350)
+        else:
+            st.success("Nenhuma duplicidade identificada.")
 
-with aba_div4:
-    if df_status is not None and not df_status.empty and COL_AUD_STATUS_DISPOSITIVO in df_status.columns:
-        resumo_status = df_status[COL_AUD_STATUS_DISPOSITIVO].value_counts(dropna=False).rename_axis("status").reset_index(name="quantidade")
-        if "status" in resumo_status.columns:
-            resumo_status["ordem"] = resumo_status["status"].map({"INATIVO": 0, "ATIVO": 1}).fillna(2)
-            resumo_status = resumo_status.sort_values(by=["ordem", "quantidade"], ascending=[True, False]).drop(columns=["ordem"])
+    with aba_div4:
+        if df_status is not None and not df_status.empty and COL_AUD_STATUS_DISPOSITIVO in df_status.columns:
+            resumo_status = df_status[COL_AUD_STATUS_DISPOSITIVO].value_counts(dropna=False).rename_axis("status").reset_index(name="quantidade")
+            if "status" in resumo_status.columns:
+                resumo_status["ordem"] = resumo_status["status"].map({"INATIVO": 0, "ATIVO": 1}).fillna(2)
+                resumo_status = resumo_status.sort_values(by=["ordem", "quantidade"], ascending=[True, False]).drop(columns=["ordem"])
 
-        df_status_view = df_status.copy()
-        df_status_view["ordem"] = df_status_view[COL_AUD_STATUS_DISPOSITIVO].map({"INATIVO": 0, "ATIVO": 1}).fillna(2)
-        df_status_view = df_status_view.sort_values(by=["ordem"], ascending=[True]).drop(columns=["ordem"])
-        st.dataframe(resumo_status, width="stretch", height=160)
-        st.dataframe(df_status_view, width="stretch", height=350)
-    else:
-        st.info("Status ativo/inativo indisponível para os dados atuais.")
+            df_status_view = df_status.copy()
+            df_status_view["ordem"] = df_status_view[COL_AUD_STATUS_DISPOSITIVO].map({"INATIVO": 0, "ATIVO": 1}).fillna(2)
+            df_status_view = df_status_view.sort_values(by=["ordem"], ascending=[True]).drop(columns=["ordem"])
+            st.dataframe(resumo_status, width="stretch", height=160)
+            st.dataframe(df_status_view, width="stretch", height=350)
+        else:
+            st.info("Status ativo/inativo indisponível para os dados atuais.")
 
-# ---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 # Rodapé
 # ---------------------------------------------------------------------------
-st.markdown(
-    """
-    <div class="custom-footer">
-        A.L-Cristina's - Gestão Administrativa avançada · M2M Audit Data localmente processado · <a href="https://rodrigo.run" target="_blank" rel="noopener noreferrer">DEV - rodrigo.run</a>
-    </div>
-    """,
-    unsafe_allow_html=True
+st.divider()
+st.caption(
+    "Auditoria de Cobrança M2M · "
+    "Os dados são processados localmente e não são enviados a nenhum servidor externo."
 )
