@@ -1068,7 +1068,7 @@ st.divider()
 st.subheader("🤖 Relatório Executivo com IA")
 
 _OLLAMA_URL = "http://localhost:11434/api/generate"
-_OLLAMA_MODEL = "llama3"
+_OLLAMA_MODEL = "mistral"
 
 def _resumo_auditoria(df: "pd.DataFrame") -> str:
     """Retorna um resumo textual compacto dos achados para o prompt."""
