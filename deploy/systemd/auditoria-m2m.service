@@ -1,0 +1,18 @@
+[Unit]
+Description=Auditoria M2M Streamlit
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/auditmem
+Environment="PATH=/opt/auditmem/.venv/bin"
+Environment="HOME=/opt/auditmem"
+Environment="STREAMLIT_BROWSER_GATHER_USAGE_STATS=false"
+ExecStart=/opt/auditmem/.venv/bin/streamlit run app.py --server.address 127.0.0.1 --server.port 8502 --server.maxUploadSize 200 --server.maxMessageSize 200
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

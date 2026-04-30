@@ -1,0 +1,10 @@
+[browser]
+gatherUsageStats = false
+serverAddress = "auditoria.anadm.site"
+serverPort = 443
+
+[server]
+maxUploadSize = 200
+maxMessageSize = 200
+address = "127.0.0.1"
+port = 8502
