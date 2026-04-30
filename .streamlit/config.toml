@@ -1,0 +1,8 @@
+[browser]
+gatherUsageStats = false
+
+[server]
+maxUploadSize = 200
+maxMessageSize = 200
+address = "127.0.0.1"
+port = 8502

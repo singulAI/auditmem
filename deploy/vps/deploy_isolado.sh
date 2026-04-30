@@ -26,9 +26,12 @@ python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -r "$APP_DIR/requirements.txt"
 
 echo "[4/8] Aplicando permissao segura"
-chown -R www-data:www-data "$APP_DIR"
 mkdir -p "$APP_DIR/.streamlit"
-chown -R www-data:www-data "$APP_DIR/.streamlit"
+mkdir -p /var/www/.streamlit
+# Copiar config do Streamlit (desativa coleta de stats - evita PermissionError)
+cp "$APP_DIR/.streamlit/config.toml" "$APP_DIR/.streamlit/config.toml" 2>/dev/null || true
+chown -R www-data:www-data "$APP_DIR"
+chown -R www-data:www-data /var/www/.streamlit
 
 echo "[5/8] Instalando unit systemd"
 cp "$APP_DIR/deploy/systemd/auditoria-m2m.service" "/etc/systemd/system/${SERVICE_NAME}.service"
