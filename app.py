@@ -461,19 +461,38 @@ def _ordenar_para_triagem(df: pd.DataFrame) -> pd.DataFrame:
     return trabalho.drop(columns=[c for c in trabalho.columns if c.startswith("_score_") or c == "_qtd_flags"])
 
 
-def _gerar_observacoes_tecnicas(df: pd.DataFrame) -> list[str]:
+def _amostra_registros(df: pd.DataFrame, mask: pd.Series, limite: int = 3) -> str:
+    subset = df.loc[mask].head(limite)
+    if subset.empty:
+        return ""
+
+    colunas = [c for c in ["imei", "iccid", "placa", "nome_dispositivo"] if c in subset.columns]
+    if not colunas:
+        return ""
+
+    exemplos = []
+    for _, row in subset.iterrows():
+        partes = [str(row[c]) for c in colunas if pd.notna(row[c]) and str(row[c]).strip() and str(row[c]) != "-"]
+        if partes:
+            exemplos.append(" / ".join(partes[:2]))
+
+    return f" Exemplo(s): {', '.join(exemplos)}." if exemplos else ""
+
+
+def _gerar_observacoes_tecnicas(df: pd.DataFrame) -> list[tuple[str, str]]:
     """Gera observações automáticas e objetivas com base nas divergências encontradas."""
     if df is None or df.empty:
         return []
 
-    observacoes: list[str] = []
+    observacoes: list[tuple[str, str]] = []
     total = len(df)
 
     suspeitos = int(df["suspeito"].sum()) if "suspeito" in df.columns else 0
     if suspeitos > 0:
-        observacoes.append(
-            f"Foram identificados {suspeitos:,} registros com pendências ({(suspeitos/total)*100:.1f}% da base analisada)."
-        )
+        observacoes.append((
+            "pendencias",
+            f"Foram identificados {suspeitos:,} registros com pendências ({(suspeitos/total)*100:.1f}% da base analisada).",
+        ))
 
     mapa_flags = [
         (FLAG_DISPOSITIVO_INATIVO, "Dispositivos inativos"),
@@ -490,22 +509,34 @@ def _gerar_observacoes_tecnicas(df: pd.DataFrame) -> list[str]:
         if flag in df.columns:
             qtd = int(df[flag].sum())
             if qtd > 0:
-                observacoes.append(f"{rotulo}: {qtd:,} ocorrência(s) ({(qtd/total)*100:.1f}% da base).")
+                observacoes.append((
+                    f"flag::{flag}",
+                    f"{rotulo}: {qtd:,} ocorrência(s) ({(qtd/total)*100:.1f}% da base).",
+                ))
 
     if COL_AUD_RISCO_COBRANCA in df.columns:
         risco = df[COL_AUD_RISCO_COBRANCA].astype(str).str.upper()
         alto = int((risco == "ALTO").sum())
         if alto > 0:
-            observacoes.append(f"Risco de cobrança ALTO em {alto:,} registro(s) ({(alto/total)*100:.1f}% da base).")
+            observacoes.append((
+                "risco_alto",
+                f"Risco de cobrança ALTO em {alto:,} registro(s) ({(alto/total)*100:.1f}% da base).",
+            ))
 
         if COL_AUD_STATUS_DISPOSITIVO in df.columns:
             status = df[COL_AUD_STATUS_DISPOSITIVO].astype(str).str.upper()
             ativo_alto = int(((status == "ATIVO") & (risco == "ALTO")).sum())
             inativo_alto = int(((status == "INATIVO") & (risco == "ALTO")).sum())
             if ativo_alto > 0:
-                observacoes.append(f"Dispositivos ATIVOS com risco alto: {ativo_alto:,} registro(s).")
+                observacoes.append((
+                    "ativo_risco_alto",
+                    f"Dispositivos ATIVOS com risco alto: {ativo_alto:,} registro(s).",
+                ))
             if inativo_alto > 0:
-                observacoes.append(f"Dispositivos INATIVOS com risco alto: {inativo_alto:,} registro(s).")
+                observacoes.append((
+                    "inativo_risco_alto",
+                    f"Dispositivos INATIVOS com risco alto: {inativo_alto:,} registro(s).",
+                ))
 
     if COL_AUD_MOTIVOS_COBRANCA in df.columns:
         motivos = []
@@ -516,9 +547,49 @@ def _gerar_observacoes_tecnicas(df: pd.DataFrame) -> list[str]:
 
             top_motivos = Counter(motivos).most_common(3)
             top_txt = ", ".join([f"{m} ({q})" for m, q in top_motivos])
-            observacoes.append(f"Principais causas técnicas: {top_txt}.")
+            observacoes.append(("top_motivos", f"Principais causas técnicas: {top_txt}."))
 
     return observacoes
+
+
+def _reanalisar_observacao_tecnica(df: pd.DataFrame, chave: str) -> str:
+    total = len(df)
+    if chave.startswith("flag::"):
+        flag = chave.split("::", 1)[1]
+        if flag in df.columns:
+            mask = df[flag].fillna(False).astype(bool)
+            qtd = int(mask.sum())
+            if qtd > 0:
+                return f"Validação técnica: {qtd:,} registro(s) confirmados para {flag} ({(qtd/total)*100:.1f}% da base)." + _amostra_registros(df, mask)
+
+    if chave == "pendencias" and "suspeito" in df.columns:
+        mask = df["suspeito"].fillna(False).astype(bool)
+        qtd = int(mask.sum())
+        return f"Validação técnica: {qtd:,} registro(s) permanecem classificados com pendências." + _amostra_registros(df, mask)
+
+    if chave in {"risco_alto", "ativo_risco_alto", "inativo_risco_alto"} and COL_AUD_RISCO_COBRANCA in df.columns:
+        risco = df[COL_AUD_RISCO_COBRANCA].astype(str).str.upper()
+        if chave == "risco_alto":
+            mask = risco == "ALTO"
+        elif COL_AUD_STATUS_DISPOSITIVO in df.columns:
+            status = df[COL_AUD_STATUS_DISPOSITIVO].astype(str).str.upper()
+            mask = (risco == "ALTO") & (status == ("ATIVO" if chave == "ativo_risco_alto" else "INATIVO"))
+        else:
+            mask = pd.Series([False] * len(df), index=df.index)
+        qtd = int(mask.sum())
+        return f"Validação técnica: {qtd:,} registro(s) confirmados para {chave}." + _amostra_registros(df, mask)
+
+    if chave == "top_motivos" and COL_AUD_MOTIVOS_COBRANCA in df.columns:
+        motivos = []
+        for item in df[COL_AUD_MOTIVOS_COBRANCA].dropna():
+            motivos.extend([m.strip() for m in str(item).split(";") if m.strip()])
+        if motivos:
+            from collections import Counter
+
+            top = Counter(motivos).most_common(5)
+            return "Validação técnica dos motivos: " + ", ".join([f"{m} ({q})" for m, q in top]) + "."
+
+    return "Reanálise concluída sem divergência adicional para este item."
 
 
 _injetar_tema_bi()
@@ -920,8 +991,32 @@ with linha_2[4]:
 observacoes_tecnicas = _gerar_observacoes_tecnicas(df_auditoria)
 if observacoes_tecnicas:
     st.markdown('<div class="bi-section-title">Análise Inteligente</div>', unsafe_allow_html=True)
-    for obs in observacoes_tecnicas:
-        st.markdown(f"- {obs}")
+    chaves_erradas: list[str] = []
+
+    for idx, (chave, obs) in enumerate(observacoes_tecnicas, start=1):
+        st.markdown(f"{idx}. {obs}")
+        c_ok, c_err = st.columns(2)
+        key_ok = f"obs_ok_{idx}_{chave}"
+        key_err = f"obs_err_{idx}_{chave}"
+        ok = c_ok.checkbox("Correto", key=key_ok)
+        err = c_err.checkbox("Errado", key=key_err)
+
+        if ok and err:
+            st.caption("Selecione apenas uma opção (Correto ou Errado).")
+        if err and not ok:
+            chaves_erradas.append(chave)
+
+    if chaves_erradas:
+        if st.button("Reanalisar observações marcadas como erro", key="btn_reanalise_obs"):
+            st.session_state["reanalise_obs"] = {
+                chave: _reanalisar_observacao_tecnica(df_auditoria, chave) for chave in chaves_erradas
+            }
+
+    reanalise = st.session_state.get("reanalise_obs", {})
+    if reanalise:
+        st.markdown("**Revisão técnica dos itens marcados como erro**")
+        for _, texto in reanalise.items():
+            st.markdown(f"- {texto}")
 
 st.divider()
 
@@ -1221,6 +1316,63 @@ def _resumo_auditoria(df: "pd.DataFrame") -> str:
 
     return "\n".join(linhas)
 
+
+def _resumo_auditoria_por_sessao(df: "pd.DataFrame", sessao: str) -> str:
+    """Raciona a análise por sessão para reduzir volume e acelerar resposta do modelo."""
+    sessao_norm = (sessao or "Geral").strip().lower()
+    total = len(df)
+    linhas = [f"Sessão analítica: {sessao}", f"Total de registros: {total}"]
+
+    def _add_flag(nome: str, rotulo: str) -> None:
+        if nome in df.columns:
+            qtd = int(df[nome].fillna(False).astype(bool).sum())
+            linhas.append(f"- {rotulo}: {qtd}")
+
+    if sessao_norm == "cobrança":
+        if COL_AUD_RISCO_COBRANCA in df.columns:
+            freq = df[COL_AUD_RISCO_COBRANCA].value_counts()
+            linhas.append("Distribuição de risco de cobrança:")
+            for nivel, qtd in freq.items():
+                linhas.append(f"- {nivel}: {int(qtd)}")
+        _add_flag(FLAG_DISPOSITIVO_INATIVO, "Dispositivo inativo")
+        _add_flag(FLAG_SEM_GPS_RECENTE, "Sem GPS recente")
+        _add_flag(FLAG_SEM_CHIP, "Sem chip")
+        _add_flag(FLAG_SEM_PLACA, "Sem placa")
+
+    elif sessao_norm == "cadastro":
+        if COL_AUD_RISCO_CADASTRO in df.columns:
+            freq = df[COL_AUD_RISCO_CADASTRO].value_counts()
+            linhas.append("Distribuição de risco de cadastro:")
+            for nivel, qtd in freq.items():
+                linhas.append(f"- {nivel}: {int(qtd)}")
+        _add_flag(FLAG_TELEFONE_CLIENTE_DUPLICADO, "Telefone cliente duplicado")
+        _add_flag(FLAG_PLACA_DUPLICADA, "Placa duplicada")
+
+    elif sessao_norm == "duplicidades":
+        _add_flag(FLAG_IMEI_DUPLICADO, "IMEI duplicado")
+        _add_flag(FLAG_ICCID_DUPLICADO, "ICCID duplicado")
+        _add_flag(FLAG_TELEFONE_DUPLICADO, "Telefone de chip duplicado")
+        _add_flag(FLAG_PLACA_DUPLICADA, "Placa duplicada")
+
+    elif sessao_norm in {"status/gps", "status", "gps"}:
+        _add_flag(FLAG_DISPOSITIVO_INATIVO, "Dispositivo inativo")
+        _add_flag(FLAG_SEM_GPS_RECENTE, "Sem GPS recente")
+        _add_flag(FLAG_SEM_PLACA, "Sem placa")
+        _add_flag(FLAG_SEM_CHIP, "Sem chip")
+
+    else:
+        # Geral: reaproveita resumo completo
+        return _resumo_auditoria(df)
+
+    if _possui_dados_financeiros(df) and COL_AUD_RISCO_COBRANCA in df.columns:
+        valores = pd.to_numeric(df["valor_mensal"], errors="coerce").fillna(0)
+        mask = df[COL_AUD_RISCO_COBRANCA].astype(str).str.upper().isin(["ALTO", "MÉDIO", "MEDIO"])
+        linhas.append(f"Valor em risco (se disponível): R$ {float(valores[mask].sum()):,.2f}")
+    else:
+        linhas.append("Valor financeiro: não informado nos dados.")
+
+    return "\n".join(linhas)
+
 _PROMPT_TEMPLATE = """\
 Você é um auditor forense de telecomunicações. Redija um RELATÓRIO DE AUDITORIA em português brasileiro.
 
@@ -1260,12 +1412,19 @@ DADOS REAIS DA AUDITORIA (use apenas estes):
 with st.expander("⚙️ Configuração do modelo", expanded=False):
     ollama_modelo = st.text_input("Modelo Ollama", value=_OLLAMA_MODEL, key="ollama_model")
     ollama_url = st.text_input("URL da API Ollama", value=_OLLAMA_URL, key="ollama_url")
+    sessao_analise = st.selectbox(
+        "Sessão da análise",
+        options=["Geral", "Cobrança", "Cadastro", "Duplicidades", "Status/GPS"],
+        index=0,
+        key="sessao_analise",
+    )
 
 if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_relatorio"):
     try:
         import requests as _requests
         import json as _json
-        resumo_txt = _resumo_auditoria(df_auditoria)
+        sessao_escolhida = st.session_state.get("sessao_analise", "Geral")
+        resumo_txt = _resumo_auditoria_por_sessao(df_auditoria, sessao_escolhida)
         tem_dado_financeiro = _possui_dados_financeiros(df_auditoria)
         regra_financeira = (
             "Existem dados financeiros reais. Você DEVE usar apenas os valores presentes nos dados e citar os números exatos."
@@ -1275,22 +1434,50 @@ if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_r
         )
         prompt = _PROMPT_TEMPLATE.format(resumo=resumo_txt, regra_financeira=regra_financeira)
 
+        num_predict_por_sessao = {
+            "Geral": 900,
+            "Cobrança": 500,
+            "Cadastro": 500,
+            "Duplicidades": 420,
+            "Status/GPS": 420,
+        }
+        num_predict = num_predict_por_sessao.get(sessao_escolhida, 500)
+        timeout_por_sessao = 420 if sessao_escolhida == "Geral" else 240
+
         with st.spinner("Gerando relatório com IA... aguarde"):
-            resp = _requests.post(
-                st.session_state.get("ollama_url", _OLLAMA_URL),
-                json={
-                    "model": st.session_state.get("ollama_model", _OLLAMA_MODEL),
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.1,
-                        "top_p": 0.85,
-                        "num_predict": 1024,
-                        "repeat_penalty": 1.1,
+            try:
+                resp = _requests.post(
+                    st.session_state.get("ollama_url", _OLLAMA_URL),
+                    json={
+                        "model": st.session_state.get("ollama_model", _OLLAMA_MODEL),
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.1,
+                            "top_p": 0.85,
+                            "num_predict": num_predict,
+                            "repeat_penalty": 1.1,
+                        },
                     },
-                },
-                timeout=600,
-            )
+                    timeout=timeout_por_sessao,
+                )
+            except _requests.exceptions.ReadTimeout:
+                # Retry leve para evitar travar o usuário em datasets grandes
+                resp = _requests.post(
+                    st.session_state.get("ollama_url", _OLLAMA_URL),
+                    json={
+                        "model": st.session_state.get("ollama_model", _OLLAMA_MODEL),
+                        "prompt": prompt + "\n\nResponda de forma extremamente objetiva em no máximo 8 bullets.",
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.1,
+                            "top_p": 0.8,
+                            "num_predict": max(220, int(num_predict * 0.6)),
+                            "repeat_penalty": 1.1,
+                        },
+                    },
+                    timeout=180,
+                )
             resp.raise_for_status()
             texto_acumulado = resp.json().get("response", "")
             st.session_state["ultimo_relatorio"] = texto_acumulado
