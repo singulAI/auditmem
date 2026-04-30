@@ -121,14 +121,12 @@ def _gerar_requerimento_m2data_bytes(
         return P(f"<b>{n}. {title}</b>", s_sec)
 
     def justify_row(row):
-        parts = []
-        if row.get("flag_dispositivo_inativo") is True:
-            parts.append("Dispositivo inativo")
-        if row.get("flag_sem_gps_recente") is True:
-            parts.append("Sem GPS recente")
-        if row.get("flag_sem_placa") is True:
-            parts.append("Sem placa")
-        return "; ".join(parts) if parts else "Inativo/Sem sinal"
+        # Mostra todos os critérios True presentes na linha, usando nomes amigáveis
+        criterios = []
+        for flag, nome in nomes_flags.items():
+            if flag in row and row[flag] is True:
+                criterios.append(nome)
+        return "; ".join(criterios) if criterios else "—"
 
     els = []
 
@@ -200,21 +198,22 @@ def _gerar_requerimento_m2data_bytes(
             str(row.get("imei", "—"))[:18],
             str(row.get("placa", "—"))[:10],
             str(row.get("status_dispositivo", "—"))[:10],
-            str(justify_row(row))[:45],
+            str(justify_row(row))[:60],
         ])
 
-    col_w = [3.0*_cm, 4.4*_cm, 3.6*_cm, 1.8*_cm, 1.8*_cm, 4.5*_cm]
+    # Ajuste de largura para melhor espaçamento visual
+    col_w = [3.2*_cm, 4.5*_cm, 3.8*_cm, 2.0*_cm, 2.0*_cm, 6.0*_cm]
     tbl = Table(table_data, colWidths=col_w, repeatRows=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (-1, 0), _rc.HexColor("#1a1a2e")),
         ("TEXTCOLOR",     (0, 0), (-1, 0), _rc.white),
         ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
+        ("FONTSIZE",      (0, 0), (-1, -1), 8),
         ("INNERGRID",     (0, 0), (-1, -1), 0.25, _rc.lightgrey),
         ("BOX",           (0, 0), (-1, -1), 0.5, _rc.black),
         ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_rc.white, _rc.HexColor("#f5f5f5")]),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("PADDING",       (0, 0), (-1, -1), 3),
+        ("PADDING",       (0, 0), (-1, -1), 4),
     ]))
     els.append(tbl)
     els.append(Spacer(1, 0.5*_cm))
