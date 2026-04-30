@@ -1,47 +1,55 @@
 # Auditoria de Cobrança M2M
 
-Dashboard local para leitura, cruzamento e auditoria de relatórios em PDF contendo dados de veículos, dispositivos/rastreadores, chips M2M e usuários.
+Dashboard BI para auditoria de cobranças M2M: leitura, cruzamento e análise de relatórios de dispositivos/rastreadores, chips M2M, veículos e usuários, com suporte a múltiplos formatos (PDF, CSV, HTML) e duas prestadoras simultâneas.
 
-O objetivo principal é identificar itens que podem estar sendo cobrados indevidamente, como dispositivos inativos, sem placa vinculada, sem conexão GPS recente, sem chip, duplicados ou vinculados a veículos desativados.
+Acesso em produção: **https://auditoria.anadm.site**
+
+O objetivo é identificar itens cobrados indevidamente, como dispositivos inativos, sem placa, sem GPS recente, sem chip, duplicados, vinculados a veículos desativados, ou cobrados por dois prestadores ao mesmo tempo.
 
 ---
 
 ## Objetivo do projeto
 
-Este sistema foi criado para ajudar na análise de cobranças relacionadas a rastreadores, chips M2M e veículos cadastrados.
+Este sistema foi criado para auditar cobranças M2M de rastreadores, chips e veículos cadastrados em duas prestadoras: **Base Principal** e **M2Data**.
 
 A ferramenta permite:
 
-- Ler relatórios exportados em PDF.
-- Extrair tabelas dos PDFs.
-- Normalizar dados como IMEI, ICCID, telefone e placa.
-- Cruzar dispositivos, chips e veículos.
-- Identificar inconsistências.
-- Filtrar itens inativos, sem placa ou sem GPS recente.
-- Gerar relatório em CSV ou Excel para contestação ou revisão de cobrança.
+- Ler relatórios em PDF, CSV ou HTML.
+- Extrair e normalizar dados como IMEI, ICCID, telefone e placa.
+- Cruzar dispositivos, chips e veículos entre as duas bases.
+- Identificar inconsistências classificando por dois eixos de risco.
+- Detectar chips cobrados por ambas as prestadoras (cobrança dupla).
+- Simular o impacto financeiro por prestadora.
+- Gerar relatório em CSV ou Excel para contestação.
 
 ---
 
 ## Funcionalidades
 
-- 📄 Leitura de relatórios exportados em PDF (dispositivos, veículos, chips M2M, usuários)
-- 🔄 Cruzamento automático de dados entre as três bases
+- 📄 Leitura de relatórios em **PDF, CSV e HTML** (dispositivos, veículos, chips M2M, usuários)
+- 🏢 Suporte a duas prestadoras: **Base Principal** e **M2Data** (chips-only)
+- 🔄 Cruzamento automático de dados com deduplicação antes do join
 - 🧹 Normalização de IMEI, ICCID, telefone e placa
-- 🚨 Identificação de inconsistências por regras configuráveis
-- 🔍 Filtros interativos por critério de auditoria
+- 🚨 Dois eixos de risco independentes: **risco de cobrança** e **risco cadastral**
+- 🔍 Filtros interativos e triagem por prioridade de auditoria
+- 💰 Simulação financeira por prestadora (valor médio ou valor total/quantidade)
+- 🔁 Detecção de chips cobrados por ambas as prestadoras simultaneamente
 - 💾 Exportação dos resultados em CSV ou Excel (.xlsx)
 
 ### Critérios de Auditoria
 
-| Flag | Critério |
-|------|----------|
-| `flag_dispositivo_inativo` | Estado de ativação não indica "ativo" |
-| `flag_sem_placa` | Placa do veículo vazia ou ausente |
-| `flag_sem_gps_recente` | Sem conexão GPS nos últimos N dias (padrão: 30) |
-| `flag_sem_chip` | ICCID vazio ou ausente |
-| `flag_imei_duplicado` | IMEI aparece em mais de um registro |
-| `flag_iccid_duplicado` | ICCID aparece em mais de um registro |
-| `flag_veiculo_desativado` | Veículo vinculado possui data de desativação |
+| Flag | Eixo | Critério |
+|------|------|----------|
+| `flag_dispositivo_inativo` | Cobrança | Estado de ativação não indica "ativo" |
+| `flag_sem_placa` | Cobrança | Placa do veículo vazia ou ausente |
+| `flag_sem_gps_recente` | Cobrança | Sem conexão GPS nos últimos N dias (padrão: 30) |
+| `flag_sem_chip` | Cobrança | ICCID vazio ou sem correspondência na base de chips |
+| `flag_imei_duplicado` | Cobrança | IMEI aparece em mais de um registro |
+| `flag_iccid_duplicado` | Cobrança | ICCID aparece em mais de um registro |
+| `flag_telefone_duplicado` | Cobrança | Telefone do chip (M2M) duplicado |
+| `flag_veiculo_desativado` | Cobrança | Veículo vinculado possui data de desativação |
+| `flag_placa_duplicada` | Cadastro | Mesma placa em mais de um dispositivo |
+| `flag_telefone_cliente_duplicado` | Cadastro | Telefone do cliente duplicado (risco cadastral) |
 
 ---
 

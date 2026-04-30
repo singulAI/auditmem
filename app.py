@@ -8,11 +8,15 @@ Execute com:
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
+import textwrap
 from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 
 from src.config import (
     COL_AUD_STATUS_DISPOSITIVO,
@@ -457,6 +461,66 @@ def _ordenar_para_triagem(df: pd.DataFrame) -> pd.DataFrame:
     return trabalho.drop(columns=[c for c in trabalho.columns if c.startswith("_score_") or c == "_qtd_flags"])
 
 
+def _gerar_observacoes_tecnicas(df: pd.DataFrame) -> list[str]:
+    """Gera observações automáticas e objetivas com base nas divergências encontradas."""
+    if df is None or df.empty:
+        return []
+
+    observacoes: list[str] = []
+    total = len(df)
+
+    suspeitos = int(df["suspeito"].sum()) if "suspeito" in df.columns else 0
+    if suspeitos > 0:
+        observacoes.append(
+            f"Foram identificados {suspeitos:,} registros com pendências ({(suspeitos/total)*100:.1f}% da base analisada)."
+        )
+
+    mapa_flags = [
+        (FLAG_DISPOSITIVO_INATIVO, "Dispositivos inativos"),
+        (FLAG_SEM_GPS_RECENTE, "Dispositivos sem GPS recente"),
+        (FLAG_SEM_PLACA, "Dispositivos sem placa"),
+        (FLAG_SEM_CHIP, "Dispositivos sem chip"),
+        (FLAG_IMEI_DUPLICADO, "IMEI duplicado"),
+        (FLAG_ICCID_DUPLICADO, "ICCID duplicado"),
+        (FLAG_TELEFONE_DUPLICADO, "Telefone de chip duplicado"),
+        (FLAG_PLACA_DUPLICADA, "Placa duplicada"),
+    ]
+
+    for flag, rotulo in mapa_flags:
+        if flag in df.columns:
+            qtd = int(df[flag].sum())
+            if qtd > 0:
+                observacoes.append(f"{rotulo}: {qtd:,} ocorrência(s) ({(qtd/total)*100:.1f}% da base).")
+
+    if COL_AUD_RISCO_COBRANCA in df.columns:
+        risco = df[COL_AUD_RISCO_COBRANCA].astype(str).str.upper()
+        alto = int((risco == "ALTO").sum())
+        if alto > 0:
+            observacoes.append(f"Risco de cobrança ALTO em {alto:,} registro(s) ({(alto/total)*100:.1f}% da base).")
+
+        if COL_AUD_STATUS_DISPOSITIVO in df.columns:
+            status = df[COL_AUD_STATUS_DISPOSITIVO].astype(str).str.upper()
+            ativo_alto = int(((status == "ATIVO") & (risco == "ALTO")).sum())
+            inativo_alto = int(((status == "INATIVO") & (risco == "ALTO")).sum())
+            if ativo_alto > 0:
+                observacoes.append(f"Dispositivos ATIVOS com risco alto: {ativo_alto:,} registro(s).")
+            if inativo_alto > 0:
+                observacoes.append(f"Dispositivos INATIVOS com risco alto: {inativo_alto:,} registro(s).")
+
+    if COL_AUD_MOTIVOS_COBRANCA in df.columns:
+        motivos = []
+        for item in df[COL_AUD_MOTIVOS_COBRANCA].dropna():
+            motivos.extend([m.strip() for m in str(item).split(";") if m.strip()])
+        if motivos:
+            from collections import Counter
+
+            top_motivos = Counter(motivos).most_common(3)
+            top_txt = ", ".join([f"{m} ({q})" for m, q in top_motivos])
+            observacoes.append(f"Principais causas técnicas: {top_txt}.")
+
+    return observacoes
+
+
 _injetar_tema_bi()
 
 # ---------------------------------------------------------------------------
@@ -853,6 +917,12 @@ with linha_2[3]:
 with linha_2[4]:
     _card_kpi("ICCID duplicado", f"{contagem_flag(FLAG_ICCID_DUPLICADO):,}", "Conflito de chip", "sim", "warning")
 
+observacoes_tecnicas = _gerar_observacoes_tecnicas(df_auditoria)
+if observacoes_tecnicas:
+    st.markdown('<div class="bi-section-title">Análise Inteligente</div>', unsafe_allow_html=True)
+    for obs in observacoes_tecnicas:
+        st.markdown(f"- {obs}")
+
 st.divider()
 
 # ---------------------------------------------------------------------------
@@ -1071,6 +1141,32 @@ _OLLAMA_URL = "http://localhost:11434/api/generate"
 _OLLAMA_MODEL = "mistral"
 
 
+def _texto_para_pdf_bytes(texto: str, titulo: str = "Relatorio Executivo de Auditoria") -> bytes:
+    """Converte texto simples para PDF em bytes."""
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    largura, altura = A4
+
+    y = altura - 50
+    pdf.setFont("Helvetica-Bold", 14)
+    pdf.drawString(40, y, titulo)
+    y -= 28
+
+    pdf.setFont("Helvetica", 10)
+    for linha in texto.splitlines():
+        blocos = textwrap.wrap(linha, width=110) or [""]
+        for bloco in blocos:
+            if y < 40:
+                pdf.showPage()
+                pdf.setFont("Helvetica", 10)
+                y = altura - 40
+            pdf.drawString(40, y, bloco)
+            y -= 14
+
+    pdf.save()
+    return buffer.getvalue()
+
+
 def _possui_dados_financeiros(df: "pd.DataFrame") -> bool:
     if "valor_mensal" not in df.columns:
         return False
@@ -1200,12 +1296,23 @@ if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_r
             st.session_state["ultimo_relatorio"] = texto_acumulado
 
         st.markdown(texto_acumulado)
-        st.download_button(
-            label="⬇️ Baixar Relatório (.txt)",
-            data=texto_acumulado.encode("utf-8"),
-            file_name="relatorio_executivo_auditoria.txt",
-            mime="text/plain",
-        )
+        col_down_txt, col_down_pdf = st.columns(2)
+        with col_down_txt:
+            st.download_button(
+                label="⬇️ Baixar Relatório (.txt)",
+                data=texto_acumulado.encode("utf-8"),
+                file_name="relatorio_executivo_auditoria.txt",
+                mime="text/plain",
+                width="stretch",
+            )
+        with col_down_pdf:
+            st.download_button(
+                label="⬇️ Baixar Relatório (.pdf)",
+                data=_texto_para_pdf_bytes(texto_acumulado),
+                file_name="relatorio_executivo_auditoria.pdf",
+                mime="application/pdf",
+                width="stretch",
+            )
 
     except Exception as _e:
         st.error(f"Erro ao conectar ao Ollama: {_e}\n\nVerifique se o serviço está rodando: `ollama serve`")
