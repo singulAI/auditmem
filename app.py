@@ -63,6 +63,208 @@ def _pdf_export_disponivel() -> bool:
         return False
 
 
+def _gerar_requerimento_m2data_bytes(
+    df: "pd.DataFrame",
+    nome_presidente: str = "RODRIGO ALVES FERREIRA",
+    cnpj: str = "43.579.314/0001-01",
+    cpf: str = "069.523.496-00",
+    email: str = "oi@grupowin.site",
+    telefone: str = "(48) 2013-3205",
+    destinatario_empresa: str = "M2 DATA SERVIÇOS LTDA",
+    destinatario_email: str = "suporte@m2data.com.br",
+    razao_social: str = "Grupo Win Associação de Benefícios",
+) -> bytes:
+    """Gera o Requerimento Administrativo de Cancelamento M2Data em PDF com as linhas filtradas."""
+    import io as _io
+    import textwrap as _tw
+    from datetime import date as _date
+    from reportlab.lib import colors as _rc
+    from reportlab.lib.pagesizes import A4 as _A4
+    from reportlab.lib.styles import ParagraphStyle as _PS
+    from reportlab.lib.units import cm as _cm
+    from reportlab.platypus import (
+        HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=_A4,
+        leftMargin=2.5*_cm, rightMargin=2.5*_cm,
+        topMargin=2.5*_cm, bottomMargin=2.5*_cm,
+    )
+
+    def _ps(name, **kw):
+        defaults = dict(fontName="Helvetica", fontSize=10, leading=15, spaceAfter=6)
+        defaults.update(kw)
+        return _PS(name, **defaults)
+
+    s_body    = _ps("body")
+    s_bold    = _ps("bold", fontName="Helvetica-Bold")
+    s_title   = _ps("title", fontName="Helvetica-Bold", fontSize=13, leading=18, alignment=1, spaceAfter=12)
+    s_sec     = _ps("sec",   fontName="Helvetica-Bold", fontSize=11, leading=16, spaceAfter=6, spaceBefore=12)
+    s_center  = _ps("ctr",  alignment=1)
+    s_small   = _ps("sm",   fontSize=8.5, leading=12, textColor=_rc.grey)
+
+    hoje = _date.today().strftime("%d/%m/%Y")
+    total_linhas = len(df)
+
+    def P(text, style=None):
+        return Paragraph(text, style or s_body)
+
+    def HR():
+        return HRFlowable(width="100%", thickness=0.5, color=_rc.grey, spaceAfter=8)
+
+    def HR_bold():
+        return HRFlowable(width="100%", thickness=1.5, color=_rc.black, spaceAfter=10)
+
+    def section(n, title):
+        return P(f"<b>{n}. {title}</b>", s_sec)
+
+    def justify_row(row):
+        parts = []
+        if row.get("flag_dispositivo_inativo") is True:
+            parts.append("Dispositivo inativo")
+        if row.get("flag_sem_gps_recente") is True:
+            parts.append("Sem GPS recente")
+        if row.get("flag_sem_placa") is True:
+            parts.append("Sem placa")
+        return "; ".join(parts) if parts else "Inativo/Sem sinal"
+
+    els = []
+
+    # --- Cabeçalho ---
+    els.append(P(f"<b>{razao_social.upper()}</b>",
+                 _ps("rz", fontName="Helvetica-Bold", fontSize=14, alignment=1, spaceAfter=4)))
+    els.append(P(f"CNPJ: {cnpj}", s_center))
+    els.append(HR_bold())
+    els.append(Spacer(1, 0.3*_cm))
+    els.append(P("REQUERIMENTO ADMINISTRATIVO", s_title))
+    els.append(P("CANCELAMENTO DE LINHAS INATIVAS M2M — REVISÃO DE COBRANÇA E DUPLICIDADE", s_title))
+    els.append(HR())
+    els.append(Spacer(1, 0.3*_cm))
+
+    # --- Endereçamento ---
+    els += [
+        P("Ilmos. Srs."),
+        P(f"<b>{destinatario_empresa}</b>"),
+        P("Setor de Suporte / Cancelamentos"),
+        P(f"E-mail: {destinatario_email}"),
+        Spacer(1, 0.3*_cm),
+        P("<b>De:</b>"),
+        P(f"<b>{nome_presidente}</b>"),
+        P(f"Presidente — {razao_social}"),
+        P(f"CPF: {cpf} | CNPJ: {cnpj}"),
+        P(f"E-mail: {email} | Tel.: {telefone}"),
+        Spacer(1, 0.2*_cm),
+        P(f"<b>Data:</b> {hoje}"),
+        Spacer(1, 0.5*_cm),
+        P("Prezados Senhores,"),
+        Spacer(1, 0.2*_cm),
+        P(
+            f"Na qualidade de Presidente da <b>{razao_social}</b>, sucessora contratual "
+            f"nos termos do <b>Termo de Transferência de Titularidade</b> e da "
+            f"<b>Ordem de Serviço nº 2309</b>, venho requerer o <b>cancelamento imediato "
+            f"de {total_linhas} linhas de conectividade M2M inativas e/ou sem sinal GPS</b> "
+            f"fornecidas por essa prestadora, bem como a restituição dos valores pagos "
+            f"indevidamente e a apuração de dupla cobrança identificada na auditoria em anexo."
+        ),
+        Spacer(1, 0.3*_cm),
+    ]
+
+    # --- Seção 1 ---
+    els.append(section("1", "DO OBJETO CONTRATUAL E DA PRESTAÇÃO DEFEITUOSA"))
+    els.append(P(
+        f"A {destinatario_empresa} fornece exclusivamente os chips de conectividade inseridos "
+        f"nos rastreadores veiculares de nossos associados. Entretanto, somos cobrados por linhas "
+        f"das quais <b>{total_linhas}</b> apresentam dispositivo <b>INATIVO</b> e/ou "
+        f"<b>ausência de comunicação GPS</b>, conforme demonstrado na auditoria técnica anexa. "
+        f"Além disso, diversos chips ativos estão vinculados a veículos que já possuem plano de "
+        f"rastreamento contratado com terceiro, gerando um inaceitável <b>bis in idem</b>."
+    ))
+
+    # --- Seção 2 – Tabela ---
+    els.append(section("2", f"DAS LINHAS A CANCELAR — {total_linhas} REGISTROS (СONFORME FILTRO APLICADO)"))
+    els.append(P(
+        "A seguir, a relação completa das linhas selecionadas e filtradas no sistema de auditoria, "
+        "que devem ser imediatamente canceladas com cessação de faturamento:"
+    ))
+    els.append(Spacer(1, 0.2*_cm))
+
+    header = ["Telefone (Chip)", "ICCID", "IMEI", "Placa", "Status", "Justificativa"]
+    table_data = [header]
+    df_filled = df.fillna("—")
+    for _, row in df_filled.iterrows():
+        table_data.append([
+            str(row.get("telefone_chip", "—"))[:20],
+            str(row.get("iccid", "—"))[:22],
+            str(row.get("imei", "—"))[:18],
+            str(row.get("placa", "—"))[:10],
+            str(row.get("status_dispositivo", "—"))[:10],
+            str(justify_row(row))[:45],
+        ])
+
+    col_w = [3.0*_cm, 4.4*_cm, 3.6*_cm, 1.8*_cm, 1.8*_cm, 4.5*_cm]
+    tbl = Table(table_data, colWidths=col_w, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, 0), _rc.HexColor("#1a1a2e")),
+        ("TEXTCOLOR",     (0, 0), (-1, 0), _rc.white),
+        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
+        ("INNERGRID",     (0, 0), (-1, -1), 0.25, _rc.lightgrey),
+        ("BOX",           (0, 0), (-1, -1), 0.5, _rc.black),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [_rc.white, _rc.HexColor("#f5f5f5")]),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("PADDING",       (0, 0), (-1, -1), 3),
+    ]))
+    els.append(tbl)
+    els.append(Spacer(1, 0.5*_cm))
+
+    # --- Seção 3 – Direitos e Pedidos ---
+    els.append(section("3", "DO DIREITO E DOS REQUERIMENTOS"))
+    els.append(P(
+        "A conduta fere frontalmente: <b>art. 20 do CDC</b> (vício do serviço); "
+        "<b>art. 884 do Código Civil</b> (enriquecimento sem causa); <b>art. 39, V, CDC</b> "
+        "(vantagem manifestamente excessiva); <b>art. 422 CC</b> (boa-fé objetiva)."
+    ))
+    els.append(Spacer(1, 0.2*_cm))
+    els.append(P("Diante do exposto, <b>REQUEREMOS</b>:"))
+    for i, req in enumerate([
+        f"O <b>cancelamento imediato</b> de todas as <b>{total_linhas} linhas</b> listadas no item 2, com cessação de faturamento a partir desta data.",
+        "A <b>restituição/compensação integral</b> dos valores cobrados nos últimos meses referentes às linhas inativas, comprovadamente imprestáveis.",
+        "A <b>apuração e eliminação das situações de dupla cobrança</b>, ajustando-se a fatura apenas àquelas linhas que dependam exclusiva e efetivamente do chip M2DATA.",
+        "O envio, em até <b>5 (cinco) dias úteis</b>, dos protocolos de cancelamento e das respectivas notas de crédito, sob pena de adoção das medidas judiciais cabíveis.",
+    ], 1):
+        els.append(P(f"{i}. {req}"))
+
+    els.append(Spacer(1, 0.4*_cm))
+    els.append(P(
+        "Aguardamos retorno formal no prazo de <b>10 (dez) dias corridos</b>, "
+        "cientes de que a inércia nos obrigará a buscar a tutela jurisdicional."
+    ))
+
+    # --- Assinatura ---
+    els += [
+        Spacer(1, 1.2*_cm),
+        HRFlowable(width="55%", thickness=0.5, color=_rc.black, spaceAfter=6, hAlign="CENTER"),
+        P("Atenciosamente,", s_center),
+        Spacer(1, 0.2*_cm),
+        P(f"<b>{nome_presidente}</b>", s_center),
+        P(f"Presidente — {razao_social}", s_center),
+        P(f"CPF: {cpf} | CNPJ: {cnpj}", s_center),
+        P(f"{email} | {telefone}", s_center),
+        Spacer(1, 0.3*_cm),
+        P(
+            f"<i>Documento gerado eletronicamente em {hoje} pelo sistema "
+            f"A.L-Cristina's – Gestão Administrativa Avançada. "
+            f"Total de registros incluídos conforme filtro da sessão de auditoria: {total_linhas}.</i>",
+            s_small,
+        ),
+    ]
+
+    doc.build(els)
+    return buf.getvalue()
+
+
 logging.basicConfig(level=logging.INFO)
 
 SNAPSHOT_PATH = Path(PROCESSADO_DIR) / "ultimo_cruzamento.pkl"
@@ -1467,6 +1669,53 @@ with col_e4:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch",
     )
+
+# ---------------------------------------------------------------------------
+# Requerimento Administrativo M2Data
+# ---------------------------------------------------------------------------
+st.divider()
+with st.expander("📄 Gerar Requerimento Administrativo — M2Data (Cancelamento de Linhas)", expanded=False):
+    st.caption(
+        "Gera o Requerimento formal de cancelamento das linhas M2M atualmente visíveis na tabela de resultados. "
+        "Aplique os filtros desejados acima (ex.: Dispositivo inativo + Sem GPS) antes de gerar o documento."
+    )
+    st.info(f"Linhas que serão incluídas no documento: **{len(df_export):,}** (conforme seleção atual de exportação)")
+
+    col_r1, col_r2 = st.columns(2)
+    with col_r1:
+        req_nome = st.text_input("Presidente / Signatário", value="RODRIGO ALVES FERREIRA", key="req_nome")
+        req_razao = st.text_input("Razão Social", value="Grupo Win Associação de Benefícios", key="req_razao")
+        req_cnpj = st.text_input("CNPJ", value="43.579.314/0001-01", key="req_cnpj")
+        req_cpf = st.text_input("CPF do signatário", value="069.523.496-00", key="req_cpf")
+    with col_r2:
+        req_email = st.text_input("E-mail de contato", value="oi@grupowin.site", key="req_email")
+        req_tel = st.text_input("Telefone", value="(48) 2013-3205", key="req_tel")
+        req_dest_emp = st.text_input("Destinatário — Empresa", value="M2 DATA SERVIÇOS LTDA", key="req_dest_emp")
+        req_dest_email = st.text_input("Destinatário — E-mail", value="suporte@m2data.com.br", key="req_dest_email")
+
+    if _pdf_export_disponivel():
+        req_pdf = _gerar_requerimento_m2data_bytes(
+            df_export,
+            nome_presidente=req_nome,
+            cnpj=req_cnpj,
+            cpf=req_cpf,
+            email=req_email,
+            telefone=req_tel,
+            destinatario_empresa=req_dest_emp,
+            destinatario_email=req_dest_email,
+            razao_social=req_razao,
+        )
+        nome_arq = f"Requerimento_Cancelamento_M2Data_{datetime.now(tz=timezone.utc).strftime('%Y%m%d')}.pdf"
+        st.download_button(
+            label="⬇️ Baixar Requerimento (.pdf)",
+            data=req_pdf,
+            file_name=nome_arq,
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+        )
+    else:
+        st.warning("Instale reportlab para habilitar a geração do requerimento em PDF.")
 
 # ---------------------------------------------------------------------------
 # Relatório narrativo com Ollama
