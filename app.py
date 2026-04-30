@@ -1070,6 +1070,13 @@ st.subheader("🤖 Relatório Executivo com IA")
 _OLLAMA_URL = "http://localhost:11434/api/generate"
 _OLLAMA_MODEL = "mistral"
 
+
+def _possui_dados_financeiros(df: "pd.DataFrame") -> bool:
+    if "valor_mensal" not in df.columns:
+        return False
+    serie = pd.to_numeric(df["valor_mensal"], errors="coerce")
+    return bool(serie.notna().any())
+
 def _resumo_auditoria(df: "pd.DataFrame") -> str:
     """Retorna um resumo textual em linguagem natural para o prompt do modelo."""
     from collections import Counter
@@ -1108,9 +1115,10 @@ def _resumo_auditoria(df: "pd.DataFrame") -> str:
             for motivo, cnt in Counter(todos2).most_common(10):
                 linhas.append(f"  - {motivo}: {cnt} ocorrências")
 
-    if "valor_mensal" in df.columns and COL_AUD_RISCO_COBRANCA in df.columns:
+    if _possui_dados_financeiros(df) and COL_AUD_RISCO_COBRANCA in df.columns:
+        valores = pd.to_numeric(df["valor_mensal"], errors="coerce").fillna(0)
         mask = df[COL_AUD_RISCO_COBRANCA].isin(["alto", "médio"])
-        valor = df.loc[mask, "valor_mensal"].sum()
+        valor = valores[mask].sum()
         linhas.append(f"\nValor mensal estimado em risco (risco alto + médio): R$ {valor:,.2f}")
     else:
         linhas.append("\nValor financeiro: não disponível nos dados fornecidos.")
@@ -1126,6 +1134,9 @@ REGRAS CRÍTICAS — SIGA RIGOROSAMENTE:
 3. Cite sempre a quantidade exata de registros afetados por cada problema.
 4. Linguagem direta, sem rodeios, para gestores não técnicos.
 5. Máximo 800 palavras no total.
+
+DIRETRIZ FINANCEIRA ESPECÍFICA:
+{regra_financeira}
 
 ESTRUTURA OBRIGATÓRIA:
 
@@ -1159,7 +1170,14 @@ if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_r
         import requests as _requests
         import json as _json
         resumo_txt = _resumo_auditoria(df_auditoria)
-        prompt = _PROMPT_TEMPLATE.format(resumo=resumo_txt)
+        tem_dado_financeiro = _possui_dados_financeiros(df_auditoria)
+        regra_financeira = (
+            "Existem dados financeiros reais. Você DEVE usar apenas os valores presentes nos dados e citar os números exatos."
+            if tem_dado_financeiro
+            else "NÃO existem dados financeiros reais. É PROIBIDO mensurar impacto em reais, estimar valores, ou citar qualquer número monetário. "
+                 "Nesta situação, escreva somente: 'valor financeiro não informado nos dados'."
+        )
+        prompt = _PROMPT_TEMPLATE.format(resumo=resumo_txt, regra_financeira=regra_financeira)
 
         with st.spinner("Gerando relatório com IA... aguarde"):
             resp = _requests.post(
@@ -1169,7 +1187,7 @@ if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_r
                     "prompt": prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.2,
+                        "temperature": 0.1,
                         "top_p": 0.85,
                         "num_predict": 1024,
                         "repeat_penalty": 1.1,
