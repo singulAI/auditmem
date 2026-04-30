@@ -12,12 +12,16 @@ import io
 import logging
 import textwrap
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from src.config import (
     COL_AUD_STATUS_DISPOSITIVO,
+    COL_SIP_STATUS_REFERENCIA,
+    COL_SIP_CONFIANCA_CRUZAMENTO,
+    COL_SIP_CHAVE_CRUZAMENTO,
     COL_AUD_MOTIVOS_CADASTRO,
     COL_AUD_MOTIVOS_COBRANCA,
     COL_AUD_RISCO_CADASTRO,
@@ -31,22 +35,54 @@ from src.config import (
     FLAG_SEM_CHIP,
     FLAG_SEM_GPS_RECENTE,
     FLAG_SEM_PLACA,
+    FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR,
+    FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR,
+    FLAG_SIPROV_SEM_CADASTRO,
     FLAG_TELEFONE_CLIENTE_DUPLICADO,
     FLAG_TELEFONE_DUPLICADO,
     FLAG_VEICULO_DESATIVADO,
+    PROCESSADO_DIR,
 )
 from src.cruzamentos import cruzar_completo
+from src.cruzamentos import cruzar_com_siprov
 from src.cruzamentos import listar_chips_sem_dispositivo
-from src.exportacao import para_csv_bytes, para_excel_bytes
+from src.exportacao import para_csv_bytes, para_excel_bytes, para_pdf_bytes
 from src.leitura_pdf import (
     ler_pdf_chips,
     ler_pdf_dispositivos,
+    ler_pdf_siprov,
     ler_pdf_usuarios,
     ler_pdf_veiculos,
 )
 from src.regras_auditoria import aplicar_todas_regras
 
 logging.basicConfig(level=logging.INFO)
+
+SNAPSHOT_PATH = Path(PROCESSADO_DIR) / "ultimo_cruzamento.pkl"
+SNAPSHOT_DATAFRAMES = [
+    "df_dispositivos",
+    "df_veiculos",
+    "df_chips",
+    "df_chips_principal",
+    "df_chips_m2data",
+    "df_usuarios",
+    "df_siprov",
+    "df_auditoria",
+    "df_dispositivos_sem_chip",
+    "df_chips_sem_dispositivo",
+    "df_duplicidades",
+    "df_status",
+]
+SNAPSHOT_PARAMS = [
+    "modo_fin_principal",
+    "valor_unit_principal",
+    "qtd_principal_ref",
+    "valor_total_principal_ref",
+    "modo_fin_m2data",
+    "valor_unit_m2data",
+    "qtd_m2_ref",
+    "valor_total_m2_ref",
+]
 
 # ---------------------------------------------------------------------------
 # Configuração da página
@@ -74,12 +110,50 @@ def _init_state() -> None:
         "df_chips_sem_dispositivo": None,
         "df_duplicidades": None,
         "df_status": None,
+        "df_siprov": None,
+        "snapshot_carregado": False,
+        "snapshot_salvo_em": None,
     }
     for chave, valor in defaults.items():
         if chave not in st.session_state:
             st.session_state[chave] = valor
 
 _init_state()
+
+
+def _carregar_snapshot_local() -> None:
+    if st.session_state.get("df_auditoria") is not None:
+        return
+    if not SNAPSHOT_PATH.exists():
+        return
+
+    try:
+        payload = pd.read_pickle(SNAPSHOT_PATH)
+    except Exception as exc:
+        logging.warning("Nao foi possivel carregar snapshot local: %s", exc)
+        return
+
+    for chave in SNAPSHOT_DATAFRAMES + SNAPSHOT_PARAMS:
+        if chave in payload:
+            st.session_state[chave] = payload[chave]
+
+    st.session_state["snapshot_carregado"] = True
+    st.session_state["snapshot_salvo_em"] = payload.get("snapshot_salvo_em")
+
+
+def _salvar_snapshot_local() -> None:
+    payload = {"snapshot_salvo_em": datetime.now(tz=timezone.utc).isoformat()}
+
+    for chave in SNAPSHOT_DATAFRAMES + SNAPSHOT_PARAMS:
+        payload[chave] = st.session_state.get(chave)
+
+    SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    pd.to_pickle(payload, SNAPSHOT_PATH)
+    st.session_state["snapshot_carregado"] = False
+    st.session_state["snapshot_salvo_em"] = payload["snapshot_salvo_em"]
+
+
+_carregar_snapshot_local()
 
 
 def _colunas_presentes(df: pd.DataFrame, colunas: list[str]) -> list[str]:
@@ -674,6 +748,17 @@ with st.sidebar.expander("🏢 Arquivos da prestadora M2Data", expanded=False):
         key="up_chips_m2data",
     )
 
+with st.sidebar.expander("📘 Base oficial SIPROV (referência primária)", expanded=False):
+    st.caption(
+        "Use o export oficial do SIPROV para validar divergências de status. "
+        "Formatos aceitos: JSON, XLSX, PDF, CSV e HTML."
+    )
+    arquivo_siprov = st.file_uploader(
+        "🧾 Relatório SIPROV Oficial",
+        type=["json", "xlsx", "xls", "pdf", "csv", "html", "htm"],
+        key="up_siprov",
+    )
+
 with st.sidebar.expander("💰 Parâmetros financeiros (opcional)", expanded=False):
     st.markdown("**Base Principal**")
     modo_fin_principal = st.radio(
@@ -791,7 +876,15 @@ if processar:
                     df_usuarios = ler_pdf_usuarios(arquivo_usuarios)
                     st.session_state["df_usuarios"] = df_usuarios
 
+                df_siprov = None
+                if arquivo_siprov:
+                    df_siprov = ler_pdf_siprov(arquivo_siprov)
+                    st.session_state["df_siprov"] = df_siprov
+                else:
+                    st.session_state["df_siprov"] = pd.DataFrame()
+
                 df_cruzado = cruzar_completo(df_disp, df_veic, df_chips)
+                df_cruzado = cruzar_com_siprov(df_cruzado, df_siprov, df_usuarios)
                 df_auditoria = aplicar_todas_regras(
                     df_cruzado,
                     dias_sem_gps=dias_gps,
@@ -833,10 +926,12 @@ if processar:
                     st.session_state["df_status"] = pd.DataFrame()
 
                 st.session_state["df_auditoria"] = df_auditoria
+                _salvar_snapshot_local()
                 st.success(
                     f"✅ Auditoria concluída: **{len(df_auditoria):,}** dispositivos analisados, "
                     f"**{df_auditoria['suspeito'].sum():,}** com pendências."
                 )
+                st.caption("A base processada foi salva localmente e sera mantida ate um novo processamento.")
             except Exception as exc:
                 st.error(f"❌ Erro durante o processamento: {exc}")
                 logging.exception("Erro no processamento dos relatórios.")
@@ -913,10 +1008,20 @@ if df_auditoria is None:
                 - 🟠 **Telefone duplicado**
                 - 🟠 **Placa duplicada**
                 - 🟠 Veículo **desativado**
+                - 🔴 **Sem cadastro no SIPROV**
+                - 🔴 **SIPROV inativo x prestador ativo**
+                - 🔴 **SIPROV inadimplente x prestador ativo**
                 - ℹ️ **Telefone cliente duplicado** *(risco cadastral)*
                 """
             )
     st.stop()
+
+snapshot_salvo_em = st.session_state.get("snapshot_salvo_em")
+if st.session_state.get("snapshot_carregado") and snapshot_salvo_em:
+    st.info(
+        "Usando a ultima base processada salva localmente. "
+        f"Snapshot: {snapshot_salvo_em}. Envie novos arquivos e processe novamente apenas quando precisar atualizar o cruzamento."
+    )
 
 valor_unit_principal_efetivo = _valor_unitario_efetivo(
     st.session_state.get("modo_fin_principal", "Valor médio por item"),
@@ -985,6 +1090,55 @@ with linha_2[3]:
     _card_kpi("IMEI duplicado", f"{contagem_flag(FLAG_IMEI_DUPLICADO):,}", "Conflito tecnico", "imei", "warning")
 with linha_2[4]:
     _card_kpi("ICCID duplicado", f"{contagem_flag(FLAG_ICCID_DUPLICADO):,}", "Conflito de chip", "sim", "warning")
+
+st.markdown('<div class="bi-section-title">Conferência Oficial SIPROV</div>', unsafe_allow_html=True)
+s1, s2, s3, s4 = st.columns(4)
+with s1:
+    _card_kpi(
+        "Sem cadastro SIPROV",
+        f"{contagem_flag(FLAG_SIPROV_SEM_CADASTRO):,}",
+        "Sem match na base oficial",
+        "alert",
+        "warning",
+    )
+with s2:
+    _card_kpi(
+        "Inativo no SIPROV e ativo no prestador",
+        f"{contagem_flag(FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR):,}",
+        "Potencial custo indevido",
+        "danger",
+        "danger",
+    )
+with s3:
+    _card_kpi(
+        "Inadimplente no SIPROV e ativo no prestador",
+        f"{contagem_flag(FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR):,}",
+        "Prioridade de bloqueio",
+        "danger",
+        "danger",
+    )
+with s4:
+    if COL_SIP_STATUS_REFERENCIA in df_auditoria.columns:
+        conferidos = int(df_auditoria[COL_SIP_STATUS_REFERENCIA].astype(str).str.upper().ne("INDEFINIDO").sum())
+    else:
+        conferidos = 0
+    _card_kpi(
+        "Com status oficial conferido",
+        f"{conferidos:,}",
+        "Base SIPROV aplicada",
+        "check",
+        "info",
+    )
+
+with st.expander("🧭 Interpretação inteligente de divergências SIPROV", expanded=False):
+    st.markdown(
+        """
+        - O **SIPROV** é a base oficial de referência para status (ativo, inativo, inadimplente).
+        - Divergência de status indica **prioridade de revisão**, mas pode existir caso operacional de transição (ex.: equipamento transferido e cadastro ainda não atualizado).
+        - Para reduzir falso positivo, priorize validação quando o cruzamento estiver com confiança **ALTA** (placa ou CPF/CNPJ).
+        - Casos com confiança **MÉDIA** (match por nome) devem ser tratados como triagem assistida.
+        """
+    )
 
 observacoes_tecnicas = _gerar_observacoes_tecnicas(df_auditoria)
 
@@ -1060,7 +1214,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.subheader("🔎 Filtros")
 
-col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+col_f1, col_f2, col_f3, col_f4, col_f5, col_f6 = st.columns(6)
 
 with col_f1:
     apenas_suspeitos = st.checkbox("Exibir apenas suspeitos", value=False)
@@ -1077,6 +1231,9 @@ nomes_flags = {
     FLAG_TELEFONE_CLIENTE_DUPLICADO: "Telefone cliente duplicado (cadastral)",
     FLAG_PLACA_DUPLICADA: "Placa duplicada",
     FLAG_VEICULO_DESATIVADO: "Veículo desativado",
+    FLAG_SIPROV_SEM_CADASTRO: "Sem cadastro SIPROV",
+    FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR: "SIPROV inativo e prestador ativo",
+    FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR: "SIPROV inadimplente e prestador ativo",
 }
 
 with col_f2:
@@ -1097,6 +1254,32 @@ with col_f3:
 with col_f4:
     mostrar_so_alto_risco = st.checkbox("Somente risco cobrança ALTO", value=False)
 
+status_siprov_disponiveis = ["TODOS"]
+if COL_SIP_STATUS_REFERENCIA in df_auditoria.columns:
+    status_siprov_disponiveis += sorted(
+        {str(v).strip().upper() for v in df_auditoria[COL_SIP_STATUS_REFERENCIA].dropna().tolist() if str(v).strip()}
+    )
+
+with col_f5:
+    status_siprov_filtro = st.selectbox(
+        "Status SIPROV",
+        options=status_siprov_disponiveis,
+        index=0,
+    )
+
+with col_f6:
+    grupo_divergencia = st.selectbox(
+        "Grupo de divergência",
+        options=[
+            "TODOS",
+            "Sem cadastro SIPROV",
+            "SIPROV inativo e prestador ativo",
+            "SIPROV inadimplente e prestador ativo",
+            "Somente divergências SIPROV",
+        ],
+        index=0,
+    )
+
 # Aplica filtros
 df_exibir = df_auditoria.copy()
 if apenas_suspeitos:
@@ -1106,6 +1289,28 @@ for flag in flags_selecionadas:
 
 if mostrar_so_alto_risco and COL_AUD_RISCO_COBRANCA in df_exibir.columns:
     df_exibir = df_exibir[df_exibir[COL_AUD_RISCO_COBRANCA] == "ALTO"]
+
+if status_siprov_filtro != "TODOS" and COL_SIP_STATUS_REFERENCIA in df_exibir.columns:
+    df_exibir = df_exibir[df_exibir[COL_SIP_STATUS_REFERENCIA].astype(str).str.upper() == status_siprov_filtro]
+
+if grupo_divergencia == "Sem cadastro SIPROV" and FLAG_SIPROV_SEM_CADASTRO in df_exibir.columns:
+    df_exibir = df_exibir[df_exibir[FLAG_SIPROV_SEM_CADASTRO]]
+elif grupo_divergencia == "SIPROV inativo e prestador ativo" and FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR in df_exibir.columns:
+    df_exibir = df_exibir[df_exibir[FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR]]
+elif grupo_divergencia == "SIPROV inadimplente e prestador ativo" and FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR in df_exibir.columns:
+    df_exibir = df_exibir[df_exibir[FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR]]
+elif grupo_divergencia == "Somente divergências SIPROV":
+    flags_siprov = [
+        f
+        for f in [
+            FLAG_SIPROV_SEM_CADASTRO,
+            FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR,
+            FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR,
+        ]
+        if f in df_exibir.columns
+    ]
+    if flags_siprov:
+        df_exibir = df_exibir[df_exibir[flags_siprov].any(axis=1)]
 
 if modo_ordenacao == "Prioridade de erro":
     df_exibir = _ordenar_para_triagem(df_exibir)
@@ -1137,6 +1342,9 @@ colunas_principais = [
     "ultima_conexao_gps",
     "telefone_cliente",
     "usuario",
+    COL_SIP_STATUS_REFERENCIA,
+    COL_SIP_CHAVE_CRUZAMENTO,
+    COL_SIP_CONFIANCA_CRUZAMENTO,
     COL_AUD_RISCO_COBRANCA,
     COL_AUD_MOTIVOS_COBRANCA,
     COL_AUD_RISCO_CADASTRO,
@@ -1162,6 +1370,9 @@ st.dataframe(
         FLAG_TELEFONE_CLIENTE_DUPLICADO: st.column_config.CheckboxColumn("Fone Cliente Dup."),
         FLAG_PLACA_DUPLICADA: st.column_config.CheckboxColumn("Placa Dup."),
         FLAG_VEICULO_DESATIVADO: st.column_config.CheckboxColumn("Veíc. Desativ."),
+        FLAG_SIPROV_SEM_CADASTRO: st.column_config.CheckboxColumn("Sem SIPROV"),
+        FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR: st.column_config.CheckboxColumn("SIPROV Inativo x Ativo"),
+        FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR: st.column_config.CheckboxColumn("SIPROV Inadimplente x Ativo"),
     },
 )
 
@@ -1216,6 +1427,21 @@ with col_e2:
     )
 
 col_e3, col_e4 = st.columns(2)
+with col_e3:
+    if _pdf_export_disponivel():
+        subtitulo_pdf = (
+            f"Registros exportados: {len(df_export):,} | Gerado em: {datetime.now(tz=timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}"
+        )
+        st.download_button(
+            label="⬇️ Baixar Relatorio Completo (.pdf)",
+            data=para_pdf_bytes(df_export, subtitulo=subtitulo_pdf),
+            file_name="auditoria_cobranca_m2m.pdf",
+            mime="application/pdf",
+            width="stretch",
+        )
+    else:
+        st.caption("Exportacao PDF completa indisponivel neste ambiente ate instalar reportlab.")
+
 with col_e4:
     st.download_button(
         label="⬇️ Baixar Excel (.xlsx)",

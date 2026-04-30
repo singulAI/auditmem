@@ -21,11 +21,22 @@ from src.config import (
     COL_DISP_PLACA,
     COL_DISP_TELEFONE,
     COL_DISP_USUARIO,
+    COL_SIP_ASSOCIADO_CPF_CNPJ,
+    COL_SIP_ASSOCIADO_NOME,
+    COL_SIP_BENEFICIO_SITUACAO,
+    COL_SIP_CHAVE_CRUZAMENTO,
+    COL_SIP_CONFIANCA_CRUZAMENTO,
+    COL_SIP_ENCONTRADO,
+    COL_SIP_PLACA,
+    COL_SIP_STATUS_REFERENCIA,
+    COL_USR_CPF,
+    COL_USR_USUARIO,
     COL_VEIC_DATA_DESATIVACAO,
     COL_VEIC_MARCA,
     COL_VEIC_MODELO,
     COL_VEIC_PLACA,
 )
+from src.normalizacao import normalizar_digitos, normalizar_nome, normalizar_placa
 
 
 def _serie_chave(df: pd.DataFrame, coluna: str) -> pd.Series:
@@ -257,3 +268,122 @@ def listar_chips_sem_dispositivo(
     mascara = serie_chips.ne("") & ~serie_chips.isin(chaves_disp)
     chips_sem_disp = df_chips[mascara].copy()
     return chips_sem_disp.reset_index(drop=True)
+
+
+def _serie_vazia(df: pd.DataFrame) -> pd.Series:
+    return pd.Series([""] * len(df), index=df.index)
+
+
+def cruzar_com_siprov(
+    df_auditoria_base: pd.DataFrame,
+    df_siprov: pd.DataFrame,
+    df_usuarios: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """
+    Enriquecimento do consolidado com a base oficial SIPROV.
+
+    Prioridade de chave:
+    1) Placa
+    2) CPF/CNPJ via relatório de usuários (usuario -> cpf)
+    3) Nome do usuário/dispositivo
+    """
+    resultado = df_auditoria_base.copy()
+
+    if df_siprov is None or df_siprov.empty:
+        resultado[COL_SIP_ENCONTRADO] = False
+        resultado[COL_SIP_CHAVE_CRUZAMENTO] = "sem_base_siprov"
+        resultado[COL_SIP_CONFIANCA_CRUZAMENTO] = "N/A"
+        return resultado.reset_index(drop=True)
+
+    sip = df_siprov.copy()
+
+    # Colunas de apoio no consolidado
+    resultado[COL_SIP_ENCONTRADO] = False
+    resultado[COL_SIP_CHAVE_CRUZAMENTO] = "sem_match"
+    resultado[COL_SIP_CONFIANCA_CRUZAMENTO] = "BAIXA"
+
+    # Gera chaves normalizadas de consulta
+    sip["_k_placa"] = _serie_chave(sip, COL_SIP_PLACA).apply(normalizar_placa)
+    sip["_k_doc"] = _serie_chave(sip, COL_SIP_ASSOCIADO_CPF_CNPJ).apply(normalizar_digitos)
+    sip["_k_nome"] = _serie_chave(sip, COL_SIP_ASSOCIADO_NOME).apply(normalizar_nome)
+
+    for c in sip.columns:
+        if c not in resultado.columns:
+            resultado[c] = pd.NA
+
+    # 1) Match por placa
+    resultado["_k_placa"] = _serie_chave(resultado, COL_DISP_PLACA).apply(normalizar_placa)
+    idx_placa = (
+        sip[sip["_k_placa"].ne("")]
+        .drop_duplicates(subset=["_k_placa"])
+        .set_index("_k_placa")
+    )
+    match_placa = resultado["_k_placa"].map(idx_placa.index.to_series()) if not idx_placa.empty else _serie_vazia(resultado)
+    mask_placa = match_placa.notna() & resultado["_k_placa"].ne("")
+
+    if mask_placa.any() and not idx_placa.empty:
+        linhas = resultado.loc[mask_placa, "_k_placa"].map(idx_placa.to_dict(orient="index"))
+        linhas_df = pd.DataFrame(linhas.tolist(), index=resultado.index[mask_placa])
+        for col in linhas_df.columns:
+            resultado.loc[mask_placa, col] = linhas_df[col]
+        resultado.loc[mask_placa, COL_SIP_ENCONTRADO] = True
+        resultado.loc[mask_placa, COL_SIP_CHAVE_CRUZAMENTO] = "placa"
+        resultado.loc[mask_placa, COL_SIP_CONFIANCA_CRUZAMENTO] = "ALTA"
+
+    # 2) Match por CPF/CNPJ via usuários (somente para os não casados)
+    resultado["_k_doc"] = ""
+    if df_usuarios is not None and not df_usuarios.empty and COL_USR_USUARIO in df_usuarios.columns and COL_USR_CPF in df_usuarios.columns:
+        usr = df_usuarios.copy()
+        usr["_k_user"] = _serie_chave(usr, COL_USR_USUARIO).apply(normalizar_nome)
+        usr["_k_doc"] = _serie_chave(usr, COL_USR_CPF).apply(normalizar_digitos)
+        mapa_user_doc = (
+            usr[usr["_k_user"].ne("") & usr["_k_doc"].ne("")]
+            .drop_duplicates(subset=["_k_user"])
+            .set_index("_k_user")["_k_doc"]
+            .to_dict()
+        )
+        resultado["_k_user"] = _serie_chave(resultado, COL_DISP_USUARIO).apply(normalizar_nome)
+        resultado["_k_doc"] = resultado["_k_user"].map(mapa_user_doc).fillna("")
+    else:
+        resultado["_k_user"] = _serie_chave(resultado, COL_DISP_USUARIO).apply(normalizar_nome)
+
+    idx_doc = (
+        sip[sip["_k_doc"].ne("")]
+        .drop_duplicates(subset=["_k_doc"])
+        .set_index("_k_doc")
+    )
+    mask_doc = (~resultado[COL_SIP_ENCONTRADO]) & resultado["_k_doc"].ne("") & resultado["_k_doc"].isin(idx_doc.index)
+    if mask_doc.any() and not idx_doc.empty:
+        linhas = resultado.loc[mask_doc, "_k_doc"].map(idx_doc.to_dict(orient="index"))
+        linhas_df = pd.DataFrame(linhas.tolist(), index=resultado.index[mask_doc])
+        for col in linhas_df.columns:
+            resultado.loc[mask_doc, col] = linhas_df[col]
+        resultado.loc[mask_doc, COL_SIP_ENCONTRADO] = True
+        resultado.loc[mask_doc, COL_SIP_CHAVE_CRUZAMENTO] = "cpf_cnpj"
+        resultado.loc[mask_doc, COL_SIP_CONFIANCA_CRUZAMENTO] = "ALTA"
+
+    # 3) Match por nome
+    idx_nome = (
+        sip[sip["_k_nome"].ne("")]
+        .drop_duplicates(subset=["_k_nome"])
+        .set_index("_k_nome")
+    )
+    mask_nome = (~resultado[COL_SIP_ENCONTRADO]) & resultado["_k_user"].ne("") & resultado["_k_user"].isin(idx_nome.index)
+    if mask_nome.any() and not idx_nome.empty:
+        linhas = resultado.loc[mask_nome, "_k_user"].map(idx_nome.to_dict(orient="index"))
+        linhas_df = pd.DataFrame(linhas.tolist(), index=resultado.index[mask_nome])
+        for col in linhas_df.columns:
+            resultado.loc[mask_nome, col] = linhas_df[col]
+        resultado.loc[mask_nome, COL_SIP_ENCONTRADO] = True
+        resultado.loc[mask_nome, COL_SIP_CHAVE_CRUZAMENTO] = "nome"
+        resultado.loc[mask_nome, COL_SIP_CONFIANCA_CRUZAMENTO] = "MEDIA"
+
+    if COL_SIP_STATUS_REFERENCIA not in resultado.columns:
+        resultado[COL_SIP_STATUS_REFERENCIA] = pd.NA
+
+    # Fallback inicial: se não houver status derivado, usa a situação bruta do benefício.
+    if COL_SIP_BENEFICIO_SITUACAO in resultado.columns:
+        mask_sem_status = resultado[COL_SIP_STATUS_REFERENCIA].isna() | (resultado[COL_SIP_STATUS_REFERENCIA].astype(str).str.strip() == "")
+        resultado.loc[mask_sem_status, COL_SIP_STATUS_REFERENCIA] = resultado.loc[mask_sem_status, COL_SIP_BENEFICIO_SITUACAO]
+
+    return resultado.drop(columns=[c for c in ["_k_placa", "_k_doc", "_k_nome", "_k_user"] if c in resultado.columns]).reset_index(drop=True)

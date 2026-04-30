@@ -27,12 +27,20 @@ from src.config import (
     FLAG_SEM_CHIP,
     FLAG_SEM_GPS_RECENTE,
     FLAG_SEM_PLACA,
+    FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR,
+    FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR,
+    FLAG_SIPROV_SEM_CADASTRO,
     FLAG_TELEFONE_CLIENTE_DUPLICADO,
     FLAG_TELEFONE_DUPLICADO,
     FLAG_VEICULO_DESATIVADO,
     FLAGS_CADASTRAIS,
     FLAGS_COBRANCA,
     VALORES_ATIVO,
+    VALORES_SIPROV_INADIMPLENTE,
+    VALORES_SIPROV_INATIVO,
+    COL_SIP_BENEFICIO_SITUACAO,
+    COL_SIP_ENCONTRADO,
+    COL_SIP_STATUS_REFERENCIA,
     COL_DISP_ATIVO,
     COL_DISP_DATA_GPS,
     COL_DISP_ICCID,
@@ -259,6 +267,46 @@ def classificar_status_dispositivo(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _normalizar_status_siprov(valor: object) -> str:
+    texto = str(valor).strip().lower() if pd.notna(valor) else ""
+    if not texto:
+        return "INDEFINIDO"
+
+    if any(chave in texto for chave in VALORES_SIPROV_INADIMPLENTE):
+        return "INADIMPLENTE"
+    if any(chave in texto for chave in VALORES_SIPROV_INATIVO):
+        return "INATIVO"
+    if "ativ" in texto or "adimpl" in texto:
+        return "ATIVO"
+
+    return "INDEFINIDO"
+
+
+def classificar_status_siprov(df: pd.DataFrame) -> pd.DataFrame:
+    """Classifica status oficial SIPROV para cruzamento com o prestador."""
+    df = df.copy()
+    if COL_SIP_BENEFICIO_SITUACAO in df.columns:
+        df[COL_SIP_STATUS_REFERENCIA] = df[COL_SIP_BENEFICIO_SITUACAO].apply(_normalizar_status_siprov)
+    elif COL_SIP_STATUS_REFERENCIA not in df.columns:
+        df[COL_SIP_STATUS_REFERENCIA] = "INDEFINIDO"
+    return df
+
+
+def identificar_divergencias_siprov(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Marca divergências considerando SIPROV como referência primária.
+    """
+    df = df.copy()
+    encontrou = df[COL_SIP_ENCONTRADO].fillna(False).astype(bool) if COL_SIP_ENCONTRADO in df.columns else pd.Series([False] * len(df), index=df.index)
+    status_disp = df[COL_AUD_STATUS_DISPOSITIVO].astype(str).str.upper() if COL_AUD_STATUS_DISPOSITIVO in df.columns else pd.Series(["INDEFINIDO"] * len(df), index=df.index)
+    status_sip = df[COL_SIP_STATUS_REFERENCIA].astype(str).str.upper() if COL_SIP_STATUS_REFERENCIA in df.columns else pd.Series(["INDEFINIDO"] * len(df), index=df.index)
+
+    df[FLAG_SIPROV_SEM_CADASTRO] = ~encontrou
+    df[FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR] = encontrou & status_disp.eq("ATIVO") & status_sip.eq("INATIVO")
+    df[FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR] = encontrou & status_disp.eq("ATIVO") & status_sip.eq("INADIMPLENTE")
+    return df
+
+
 def _montar_motivos(df: pd.DataFrame, mapa_labels: dict[str, str], flags: list[str]) -> pd.Series:
     """Monta texto de motivos com base nas flags ativas em cada linha."""
     flags_presentes = [f for f in flags if f in df.columns]
@@ -304,6 +352,9 @@ def classificar_riscos(df: pd.DataFrame) -> pd.DataFrame:
         FLAG_TELEFONE_DUPLICADO: "Telefone do chip duplicado",
         FLAG_PLACA_DUPLICADA: "Placa duplicada",
         FLAG_VEICULO_DESATIVADO: "Veículo desativado",
+        FLAG_SIPROV_SEM_CADASTRO: "Sem correspondência no SIPROV",
+        FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR: "SIPROV inativo e prestador ativo",
+        FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR: "SIPROV inadimplente e prestador ativo",
     }
     mapa_cadastro = {
         FLAG_TELEFONE_CLIENTE_DUPLICADO: "Telefone do cliente duplicado",
@@ -351,6 +402,8 @@ def aplicar_todas_regras(
     df = identificar_placas_duplicadas(df)
     df = identificar_veiculos_desativados(df)
     df = classificar_status_dispositivo(df)
+    df = classificar_status_siprov(df)
+    df = identificar_divergencias_siprov(df)
     df = classificar_riscos(df)
 
     flags = FLAGS_COBRANCA

@@ -8,6 +8,7 @@ e retorna DataFrames normalizados.
 from __future__ import annotations
 
 import io
+import json
 import logging
 from typing import Union
 
@@ -17,12 +18,14 @@ import pdfplumber
 from src.config import (
     COLUNAS_CHIPS,
     COLUNAS_DISPOSITIVOS,
+    COLUNAS_SIPROV,
     COLUNAS_USUARIOS,
     COLUNAS_VEICULOS,
 )
 from src.normalizacao import (
     normalizar_dataframe_chips,
     normalizar_dataframe_dispositivos,
+    normalizar_dataframe_siprov,
     normalizar_dataframe_veiculos,
 )
 
@@ -68,6 +71,9 @@ def _combinar_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
 
 def _ler_conteudo_bytes(fonte: FontePDF) -> bytes:
     """Lê a fonte em bytes para processar CSV/HTML de forma uniforme."""
+    if isinstance(fonte, str):
+        with open(fonte, "rb") as f:
+            return f.read()
     if isinstance(fonte, (bytes, bytearray)):
         return bytes(fonte)
     if hasattr(fonte, "read"):
@@ -114,6 +120,70 @@ def _extrair_tabelas_html(fonte: FontePDF) -> list[pd.DataFrame]:
     return [df.astype(str) for df in tabelas]
 
 
+def _detectar_linha_cabecalho(df: pd.DataFrame, limite_busca: int = 15) -> int:
+    """Detecta a linha de cabeçalho em planilhas exportadas com título acima."""
+    if df.empty:
+        return 0
+
+    melhor_idx = 0
+    melhor_score = -1
+
+    fim = min(limite_busca, len(df))
+    for i in range(fim):
+        linha = df.iloc[i]
+        nao_nulos = sum(1 for v in linha.tolist() if pd.notna(v) and str(v).strip() != "")
+        score = int(nao_nulos)
+        if score > melhor_score:
+            melhor_score = score
+            melhor_idx = i
+
+    return melhor_idx
+
+
+def _extrair_tabelas_excel(fonte: FontePDF) -> list[pd.DataFrame]:
+    """Lê planilhas Excel tratando cabeçalhos deslocados por títulos de relatório."""
+    conteudo = _ler_conteudo_bytes(fonte)
+    buffer = io.BytesIO(conteudo)
+
+    frames: list[pd.DataFrame] = []
+    planilhas = pd.read_excel(buffer, sheet_name=None, header=None)
+
+    for df_raw in planilhas.values():
+        if df_raw.empty:
+            continue
+
+        idx_header = _detectar_linha_cabecalho(df_raw)
+        cabecalho = [str(v).strip() if pd.notna(v) else "" for v in df_raw.iloc[idx_header].tolist()]
+
+        df = df_raw.iloc[idx_header + 1 :].copy()
+        df.columns = cabecalho
+        df = df.dropna(how="all")
+        df = df.loc[:, [c for c in df.columns if str(c).strip() != ""]]
+
+        if not df.empty:
+            frames.append(df.reset_index(drop=True))
+
+    return frames
+
+
+def _extrair_tabelas_json(fonte: FontePDF) -> list[pd.DataFrame]:
+    """Lê JSON no formato lista de objetos ou objeto com lista em chave principal."""
+    conteudo = _ler_conteudo_bytes(fonte)
+    texto = conteudo.decode("utf-8", errors="ignore")
+    payload = json.loads(texto)
+
+    if isinstance(payload, list):
+        return [pd.DataFrame(payload)]
+
+    if isinstance(payload, dict):
+        for _, valor in payload.items():
+            if isinstance(valor, list):
+                return [pd.DataFrame(valor)]
+        return [pd.DataFrame([payload])]
+
+    return [pd.DataFrame()]
+
+
 def _detectar_extensao_fonte(fonte: FontePDF) -> str:
     """Obtém a extensão do arquivo (quando disponível) para escolher o parser."""
     nome = ""
@@ -136,6 +206,10 @@ def _extrair_tabelas_arquivo(fonte: FontePDF) -> list[pd.DataFrame]:
         return _extrair_tabelas_csv(fonte)
     if ext in {"html", "htm"}:
         return _extrair_tabelas_html(fonte)
+    if ext in {"xlsx", "xls"}:
+        return _extrair_tabelas_excel(fonte)
+    if ext == "json":
+        return _extrair_tabelas_json(fonte)
 
     # Fallback para manter compatibilidade quando extensão não estiver disponível.
     try:
@@ -144,6 +218,14 @@ def _extrair_tabelas_arquivo(fonte: FontePDF) -> list[pd.DataFrame]:
         pass
     try:
         return _extrair_tabelas_csv(fonte)
+    except Exception:
+        pass
+    try:
+        return _extrair_tabelas_excel(fonte)
+    except Exception:
+        pass
+    try:
+        return _extrair_tabelas_json(fonte)
     except Exception:
         pass
     return _extrair_tabelas_html(fonte)
@@ -299,6 +381,55 @@ MAPEAMENTO_USUARIOS: dict[str, list[str]] = {
     "papel": ["papel", "role", "perfil"],
 }
 
+MAPEAMENTO_SIPROV: dict[str, list[str]] = {
+    "siprov_associado_nome": [
+        "associado_nome_razao_social",
+        "associado - nome/razão social",
+        "associado - nome/razao social",
+    ],
+    "siprov_beneficio_situacao": [
+        "beneficio_situacao_atual",
+        "benefício - situação atual",
+        "beneficio - situacao atual",
+    ],
+    "siprov_associado_cpf_cnpj": [
+        "associado_cpf_cnpj",
+        "associado - cpf/cnpj",
+    ],
+    "siprov_associado_email": [
+        "associado_email",
+        "associado - email",
+    ],
+    "siprov_associado_data_cadastro": [
+        "associado_data_cadastro",
+        "associado - data de cadastro",
+    ],
+    "siprov_associado_recebe_email": [
+        "associado_recebe_email",
+        "associado - recebe email",
+    ],
+    "siprov_beneficio_tipo_pagamento": [
+        "beneficio_tipo_pagamento",
+        "benefício - tipo de pagamento",
+        "beneficio - tipo de pagamento",
+    ],
+    "siprov_beneficio_usuario_ultima_situacao": [
+        "beneficio_usuario_ultima_situacao",
+        "benefício - usuário da última situação",
+        "beneficio - usuario da ultima situacao",
+    ],
+    "siprov_veiculo_sem_placa": [
+        "veiculo_sem_placa",
+        "veículo - sem placa",
+        "veiculo - sem placa",
+    ],
+    "siprov_placa": [
+        "placa",
+        "veiculo_placa",
+        "veículo - placa",
+    ],
+}
+
 
 # ---------------------------------------------------------------------------
 # Funções públicas
@@ -360,3 +491,17 @@ def ler_pdf_usuarios(fonte: FontePDF) -> pd.DataFrame:
         return pd.DataFrame(columns=COLUNAS_USUARIOS)
     df = _mapear_colunas(df, MAPEAMENTO_USUARIOS)
     return df.reset_index(drop=True)
+
+
+def ler_pdf_siprov(fonte: FontePDF) -> pd.DataFrame:
+    """
+    Lê export oficial do SIPROV (JSON/XLSX/PDF/CSV/HTML) e retorna DataFrame normalizado.
+    """
+    frames = _extrair_tabelas_arquivo(fonte)
+    df = _combinar_frames(frames)
+    if df.empty:
+        logger.warning("Nenhuma tabela encontrada no arquivo SIPROV.")
+        return pd.DataFrame(columns=COLUNAS_SIPROV)
+
+    df = _mapear_colunas(df, MAPEAMENTO_SIPROV)
+    return normalizar_dataframe_siprov(df)

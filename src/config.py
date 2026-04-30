@@ -125,6 +125,38 @@ COLUNAS_USUARIOS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Nomes canônicos de colunas — relatório SIPROV (referência oficial)
+# ---------------------------------------------------------------------------
+COL_SIP_ASSOCIADO_NOME = "siprov_associado_nome"
+COL_SIP_ASSOCIADO_CPF_CNPJ = "siprov_associado_cpf_cnpj"
+COL_SIP_BENEFICIO_SITUACAO = "siprov_beneficio_situacao"
+COL_SIP_ASSOCIADO_EMAIL = "siprov_associado_email"
+COL_SIP_ASSOCIADO_DATA_CADASTRO = "siprov_associado_data_cadastro"
+COL_SIP_ASSOCIADO_RECEBE_EMAIL = "siprov_associado_recebe_email"
+COL_SIP_BENEFICIO_TIPO_PAGAMENTO = "siprov_beneficio_tipo_pagamento"
+COL_SIP_BENEFICIO_USUARIO_ULTIMA_SITUACAO = "siprov_beneficio_usuario_ultima_situacao"
+COL_SIP_VEICULO_SEM_PLACA = "siprov_veiculo_sem_placa"
+COL_SIP_PLACA = "siprov_placa"
+
+COL_SIP_STATUS_REFERENCIA = "siprov_status_referencia"
+COL_SIP_ENCONTRADO = "siprov_encontrado"
+COL_SIP_CHAVE_CRUZAMENTO = "siprov_chave_cruzamento"
+COL_SIP_CONFIANCA_CRUZAMENTO = "siprov_confianca_cruzamento"
+
+COLUNAS_SIPROV = [
+    COL_SIP_ASSOCIADO_NOME,
+    COL_SIP_BENEFICIO_SITUACAO,
+    COL_SIP_ASSOCIADO_CPF_CNPJ,
+    COL_SIP_ASSOCIADO_EMAIL,
+    COL_SIP_ASSOCIADO_DATA_CADASTRO,
+    COL_SIP_ASSOCIADO_RECEBE_EMAIL,
+    COL_SIP_BENEFICIO_TIPO_PAGAMENTO,
+    COL_SIP_BENEFICIO_USUARIO_ULTIMA_SITUACAO,
+    COL_SIP_VEICULO_SEM_PLACA,
+    COL_SIP_PLACA,
+]
+
+# ---------------------------------------------------------------------------
 # Flags de auditoria — colunas adicionadas ao relatório final
 # ---------------------------------------------------------------------------
 FLAG_DISPOSITIVO_INATIVO = "flag_dispositivo_inativo"
@@ -137,6 +169,9 @@ FLAG_TELEFONE_DUPLICADO = "flag_telefone_duplicado"
 FLAG_TELEFONE_CLIENTE_DUPLICADO = "flag_telefone_cliente_duplicado"
 FLAG_PLACA_DUPLICADA = "flag_placa_duplicada"
 FLAG_VEICULO_DESATIVADO = "flag_veiculo_desativado"
+FLAG_SIPROV_SEM_CADASTRO = "flag_siprov_sem_cadastro"
+FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR = "flag_siprov_inativo_ativo_prestador"
+FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR = "flag_siprov_inadimplente_ativo_prestador"
 
 # Coluna derivada para visualização do status operacional do dispositivo
 COL_AUD_STATUS_DISPOSITIVO = "status_dispositivo"
@@ -157,6 +192,9 @@ FLAGS_AUDITORIA = [
     FLAG_TELEFONE_CLIENTE_DUPLICADO,
     FLAG_PLACA_DUPLICADA,
     FLAG_VEICULO_DESATIVADO,
+    FLAG_SIPROV_SEM_CADASTRO,
+    FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR,
+    FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR,
 ]
 
 FLAGS_COBRANCA = [
@@ -169,6 +207,9 @@ FLAGS_COBRANCA = [
     FLAG_TELEFONE_DUPLICADO,
     FLAG_PLACA_DUPLICADA,
     FLAG_VEICULO_DESATIVADO,
+    FLAG_SIPROV_SEM_CADASTRO,
+    FLAG_SIPROV_INATIVO_ATIVO_PRESTADOR,
+    FLAG_SIPROV_INADIMPLENTE_ATIVO_PRESTADOR,
 ]
 
 FLAGS_CADASTRAIS = [
@@ -191,6 +232,24 @@ VALORES_ATIVO = {
     "true",
     "verdadeiro",
     "s",
+}
+
+VALORES_SIPROV_INATIVO = {
+    "inativo",
+    "cancelado",
+    "cancelada",
+    "suspenso",
+    "suspensa",
+    "bloqueado",
+    "bloqueada",
+}
+
+VALORES_SIPROV_INADIMPLENTE = {
+    "inadimplente",
+    "inadimplencia",
+    "em atraso",
+    "atrasado",
+    "atrasada",
 }
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,13 @@ from src.config import (
     COL_VEIC_PLACA,
     COLUNAS_CHIPS,
     COLUNAS_DISPOSITIVOS,
+    COLUNAS_SIPROV,
     COLUNAS_VEICULOS,
+    COL_SIP_ASSOCIADO_CPF_CNPJ,
+    COL_SIP_ASSOCIADO_NOME,
+    COL_SIP_BENEFICIO_SITUACAO,
+    COL_SIP_PLACA,
+    COL_SIP_ASSOCIADO_DATA_CADASTRO,
 )
 
 
@@ -68,6 +74,13 @@ def normalizar_texto(valor) -> str:
     if pd.isna(valor):
         return ""
     return str(valor).strip()
+
+
+def normalizar_nome(valor) -> str:
+    """Normaliza nomes para comparações flexíveis de matching textual."""
+    if pd.isna(valor) or str(valor).strip() == "":
+        return ""
+    return re.sub(r"\s+", " ", str(valor).strip()).upper()
 
 
 # ---------------------------------------------------------------------------
@@ -115,4 +128,22 @@ def normalizar_dataframe_chips(df: pd.DataFrame) -> pd.DataFrame:
     df[COL_CHIP_IMEI] = df[COL_CHIP_IMEI].apply(normalizar_imei)
     df[COL_CHIP_ICCID] = df[COL_CHIP_ICCID].apply(normalizar_iccid)
     df[COL_CHIP_TELEFONE] = df[COL_CHIP_TELEFONE].apply(normalizar_telefone)
+    return df.reset_index(drop=True)
+
+
+def normalizar_dataframe_siprov(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza um DataFrame do SIPROV (fonte oficial de referência)."""
+    df = df.copy()
+    df = _garantir_colunas(df, COLUNAS_SIPROV)
+
+    df[COL_SIP_ASSOCIADO_CPF_CNPJ] = df[COL_SIP_ASSOCIADO_CPF_CNPJ].apply(normalizar_digitos)
+    df[COL_SIP_ASSOCIADO_NOME] = df[COL_SIP_ASSOCIADO_NOME].apply(normalizar_nome)
+    df[COL_SIP_BENEFICIO_SITUACAO] = df[COL_SIP_BENEFICIO_SITUACAO].apply(normalizar_texto)
+    df[COL_SIP_PLACA] = df[COL_SIP_PLACA].apply(normalizar_placa)
+
+    if COL_SIP_ASSOCIADO_DATA_CADASTRO in df.columns:
+        df[COL_SIP_ASSOCIADO_DATA_CADASTRO] = pd.to_datetime(
+            df[COL_SIP_ASSOCIADO_DATA_CADASTRO], errors="coerce"
+        )
+
     return df.reset_index(drop=True)

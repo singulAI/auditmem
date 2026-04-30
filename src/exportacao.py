@@ -130,3 +130,81 @@ def para_excel_bytes(df: pd.DataFrame, nome_aba: str = "Auditoria M2M") -> bytes
 
     buffer.seek(0)
     return buffer.read()
+
+
+def para_pdf_bytes(
+    df: pd.DataFrame,
+    titulo: str = "Relatorio Completo de Auditoria M2M",
+    subtitulo: str | None = None,
+    max_linhas: int = 250,
+) -> bytes:
+    """Gera um PDF tabular do resultado atual da auditoria."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        leftMargin=0.8 * cm,
+        rightMargin=0.8 * cm,
+        topMargin=0.8 * cm,
+        bottomMargin=0.8 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    elementos = [Paragraph(titulo, styles["Title"])]
+    if subtitulo:
+        elementos.append(Paragraph(subtitulo, styles["Normal"]))
+    elementos.append(Spacer(1, 0.35 * cm))
+
+    if df.empty:
+        elementos.append(Paragraph("Nenhum registro disponivel para exportacao.", styles["Normal"]))
+        doc.build(elementos)
+        buffer.seek(0)
+        return buffer.read()
+
+    df_pdf = df.head(max_linhas).copy()
+    colunas = [str(c) for c in df_pdf.columns]
+    dados = [colunas]
+    for _, linha in df_pdf.iterrows():
+        dados.append([
+            "" if pd.isna(valor) else str(valor)[:80]
+            for valor in linha.tolist()
+        ])
+
+    largura_total = 27 * cm
+    largura_coluna = largura_total / max(len(colunas), 1)
+    tabela = Table(dados, repeatRows=1, colWidths=[largura_coluna] * len(colunas))
+    tabela.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f3a5f")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cbd5e1")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    elementos.append(tabela)
+
+    if len(df) > max_linhas:
+        elementos.append(Spacer(1, 0.25 * cm))
+        elementos.append(
+            Paragraph(
+                f"PDF limitado aos primeiros {max_linhas} registros de um total de {len(df)}.",
+                styles["Italic"],
+            )
+        )
+
+    doc.build(elementos)
+    buffer.seek(0)
+    return buffer.read()
