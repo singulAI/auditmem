@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
 
 from src.config import (
     COL_AUD_STATUS_DISPOSITIVO,
@@ -1238,9 +1236,12 @@ _OLLAMA_MODEL = "mistral"
 
 def _texto_para_pdf_bytes(texto: str, titulo: str = "Relatorio Executivo de Auditoria") -> bytes:
     """Converte texto simples para PDF em bytes."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
-    largura, altura = A4
+    _, altura = A4
 
     y = altura - 50
     pdf.setFont("Helvetica-Bold", 14)
@@ -1260,6 +1261,14 @@ def _texto_para_pdf_bytes(texto: str, titulo: str = "Relatorio Executivo de Audi
 
     pdf.save()
     return buffer.getvalue()
+
+
+def _pdf_export_disponivel() -> bool:
+    try:
+        import reportlab  # noqa: F401
+        return True
+    except Exception:
+        return False
 
 
 def _possui_dados_financeiros(df: "pd.DataFrame") -> bool:
@@ -1493,13 +1502,16 @@ if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_r
                 width="stretch",
             )
         with col_down_pdf:
-            st.download_button(
-                label="⬇️ Baixar Relatório (.pdf)",
-                data=_texto_para_pdf_bytes(texto_acumulado),
-                file_name="relatorio_executivo_auditoria.pdf",
-                mime="application/pdf",
-                width="stretch",
-            )
+            if _pdf_export_disponivel():
+                st.download_button(
+                    label="⬇️ Baixar Relatório (.pdf)",
+                    data=_texto_para_pdf_bytes(texto_acumulado),
+                    file_name="relatorio_executivo_auditoria.pdf",
+                    mime="application/pdf",
+                    width="stretch",
+                )
+            else:
+                st.info("Exportação PDF indisponível: instale `reportlab` no ambiente.")
 
     except Exception as _e:
         st.error(f"Erro ao conectar ao Ollama: {_e}\n\nVerifique se o serviço está rodando: `ollama serve`")
