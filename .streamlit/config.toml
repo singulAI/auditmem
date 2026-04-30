@@ -1,5 +1,7 @@
 [browser]
 gatherUsageStats = false
+serverAddress = "auditoria.anadm.site"
+serverPort = 443
 
 [server]
 maxUploadSize = 200
