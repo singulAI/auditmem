@@ -17,7 +17,7 @@ def exportar_csv(df: pd.DataFrame) -> bytes:
     bytes
         Conteúdo CSV codificado em UTF-8 com BOM para compatibilidade com Excel.
     """
-    return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+    return df.to_csv(index=False).encode("utf-8-sig")
 
 
 def exportar_excel(df: pd.DataFrame) -> bytes:

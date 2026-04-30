@@ -9,6 +9,10 @@ from src.config import (
     COLUNAS_COBRANCA,
 )
 
+# Número máximo de dígitos preservados em um telefone normalizado
+# (DDI 2 + DDD 2 + número 9 = 13 dígitos no padrão brasileiro internacional)
+MAX_PHONE_DIGITS = 13
+
 
 def _encontrar_coluna(df: pd.DataFrame, alternativas: list[str]) -> str | None:
     """Retorna o primeiro nome de coluna encontrado no DataFrame dentre as alternativas."""
@@ -48,8 +52,8 @@ def _normalizar_iccid(valor: str) -> str:
 def _normalizar_telefone(valor: str) -> str:
     """Normaliza número de telefone: remove DDI/DDDs opcionais, mantém dígitos."""
     num = _limpar_numerico(valor)
-    if len(num) > 13:
-        num = num[-13:]
+    if len(num) > MAX_PHONE_DIGITS:
+        num = num[-MAX_PHONE_DIGITS:]
     return num
 
 

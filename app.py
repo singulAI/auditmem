@@ -154,8 +154,13 @@ total_critico = resumo.get("Total crítico", 0)
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Total de dispositivos", total)
-col2.metric("Com pendência", total_pendente, delta=f"{total_pendente/total*100:.1f}%" if total else "0%")
+col2.metric("Com pendência", total_pendente)
 col3.metric("🔴 Críticos", total_critico)
+
+if total > 0:
+    st.caption(
+        f"📌 {total_pendente/total*100:.1f}% dos dispositivos apresentam ao menos uma pendência."
+    )
 
 st.divider()
 
