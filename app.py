@@ -987,34 +987,6 @@ with linha_2[4]:
     _card_kpi("ICCID duplicado", f"{contagem_flag(FLAG_ICCID_DUPLICADO):,}", "Conflito de chip", "sim", "warning")
 
 observacoes_tecnicas = _gerar_observacoes_tecnicas(df_auditoria)
-if observacoes_tecnicas:
-    st.markdown('<div class="bi-section-title">Análise Inteligente</div>', unsafe_allow_html=True)
-    chaves_erradas: list[str] = []
-
-    for idx, (chave, obs) in enumerate(observacoes_tecnicas, start=1):
-        st.markdown(f"{idx}. {obs}")
-        c_ok, c_err = st.columns(2)
-        key_ok = f"obs_ok_{idx}_{chave}"
-        key_err = f"obs_err_{idx}_{chave}"
-        ok = c_ok.checkbox("Correto", key=key_ok)
-        err = c_err.checkbox("Errado", key=key_err)
-
-        if ok and err:
-            st.caption("Selecione apenas uma opção (Correto ou Errado).")
-        if err and not ok:
-            chaves_erradas.append(chave)
-
-    if chaves_erradas:
-        if st.button("Reanalisar observações marcadas como erro", key="btn_reanalise_obs"):
-            st.session_state["reanalise_obs"] = {
-                chave: _reanalisar_observacao_tecnica(df_auditoria, chave) for chave in chaves_erradas
-            }
-
-    reanalise = st.session_state.get("reanalise_obs", {})
-    if reanalise:
-        st.markdown("**Revisão técnica dos itens marcados como erro**")
-        for _, texto in reanalise.items():
-            st.markdown(f"- {texto}")
 
 st.divider()
 
@@ -1192,6 +1164,35 @@ st.dataframe(
         FLAG_VEICULO_DESATIVADO: st.column_config.CheckboxColumn("Veíc. Desativ."),
     },
 )
+
+if observacoes_tecnicas:
+    with st.expander("🧠 Análise Inteligente", expanded=False):
+        chaves_erradas: list[str] = []
+
+        for idx, (chave, obs) in enumerate(observacoes_tecnicas, start=1):
+            st.markdown(f"{idx}. {obs}")
+            c_ok, c_err = st.columns(2)
+            key_ok = f"obs_ok_{idx}_{chave}"
+            key_err = f"obs_err_{idx}_{chave}"
+            ok = c_ok.checkbox("Correto", key=key_ok)
+            err = c_err.checkbox("Errado", key=key_err)
+
+            if ok and err:
+                st.caption("Selecione apenas uma opção (Correto ou Errado).")
+            if err and not ok:
+                chaves_erradas.append(chave)
+
+        if chaves_erradas:
+            if st.button("Reanalisar observações marcadas como erro", key="btn_reanalise_obs"):
+                st.session_state["reanalise_obs"] = {
+                    chave: _reanalisar_observacao_tecnica(df_auditoria, chave) for chave in chaves_erradas
+                }
+
+        reanalise = st.session_state.get("reanalise_obs", {})
+        if reanalise:
+            st.markdown("**Revisão técnica dos itens marcados como erro**")
+            for _, texto in reanalise.items():
+                st.markdown(f"- {texto}")
 
 # ---------------------------------------------------------------------------
 # Exportação
@@ -1502,16 +1503,18 @@ if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_r
                 width="stretch",
             )
         with col_down_pdf:
-            if _pdf_export_disponivel():
-                st.download_button(
-                    label="⬇️ Baixar Relatório (.pdf)",
-                    data=_texto_para_pdf_bytes(texto_acumulado),
-                    file_name="relatorio_executivo_auditoria.pdf",
-                    mime="application/pdf",
-                    width="stretch",
-                )
-            else:
-                st.info("Exportação PDF indisponível: instale `reportlab` no ambiente.")
+            pdf_disponivel = _pdf_export_disponivel()
+            st.download_button(
+                label="⬇️ Baixar Relatório (.pdf)",
+                data=_texto_para_pdf_bytes(texto_acumulado) if pdf_disponivel else b"",
+                file_name="relatorio_executivo_auditoria.pdf",
+                mime="application/pdf",
+                width="stretch",
+                disabled=not pdf_disponivel,
+                help="Instale a biblioteca reportlab no servidor para habilitar o PDF." if not pdf_disponivel else None,
+            )
+            if not pdf_disponivel:
+                st.caption("PDF desabilitado neste ambiente (dependência `reportlab` ausente).")
 
     except Exception as _e:
         st.error(f"Erro ao conectar ao Ollama: {_e}\n\nVerifique se o serviço está rodando: `ollama serve`")
