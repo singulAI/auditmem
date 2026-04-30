@@ -1148,7 +1148,9 @@ if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_r
         resumo_txt = _resumo_auditoria(df_auditoria)
         prompt = _PROMPT_TEMPLATE.format(resumo=resumo_txt)
 
-        with st.spinner("Gerando relatório... aguarde"):
+        st.info("⏳ Gerando relatório com IA local (pode levar 3–5 minutos em CPU). Aguarde sem fechar a página.")
+
+        with st.spinner("Processando com Mistral..."):
             resp = _requests.post(
                 st.session_state.get("ollama_url", _OLLAMA_URL),
                 json={
@@ -1157,7 +1159,7 @@ if st.button("📝 Gerar Relatório Executivo", type="primary", key="btn_gerar_r
                     "stream": True,
                 },
                 stream=True,
-                timeout=120,
+                timeout=600,
             )
             resp.raise_for_status()
 
