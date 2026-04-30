@@ -1676,10 +1676,65 @@ with col_e4:
 st.divider()
 with st.expander("📄 Gerar Requerimento Administrativo — M2Data (Cancelamento de Linhas)", expanded=False):
     st.caption(
-        "Gera o Requerimento formal de cancelamento das linhas M2M atualmente visíveis na tabela de resultados. "
-        "Aplique os filtros desejados acima (ex.: Dispositivo inativo + Sem GPS) antes de gerar o documento."
+        "Gera o Requerimento formal de cancelamento das linhas M2M. "
+        "Use os filtros abaixo para selecionar os itens que constarão no documento, "
+        "de forma independente dos filtros do painel principal."
     )
-    st.info(f"Linhas que serão incluídas no documento: **{len(df_export):,}** (conforme seleção atual de exportação)")
+
+    # ── Filtros independentes do requerimento ──────────────────────────────
+    st.markdown("**Filtros do Requerimento**")
+    col_rf1, col_rf2, col_rf3 = st.columns(3)
+
+    with col_rf1:
+        _ops_operadora = sorted(
+            df_auditoria["operadora"].dropna().astype(str).unique().tolist()
+        ) if "operadora" in df_auditoria.columns else []
+        req_operadoras = st.multiselect(
+            "Fornecedor / Operadora",
+            options=_ops_operadora,
+            default=[],
+            key="req_operadoras",
+            placeholder="Todos os fornecedores",
+        )
+
+    with col_rf2:
+        _ops_status = sorted(
+            df_auditoria[COL_AUD_STATUS_DISPOSITIVO].dropna().astype(str).str.upper().unique().tolist()
+        ) if COL_AUD_STATUS_DISPOSITIVO in df_auditoria.columns else []
+        req_status = st.multiselect(
+            "Status do Dispositivo",
+            options=_ops_status,
+            default=[],
+            key="req_status",
+            placeholder="Todos os status",
+        )
+
+    with col_rf3:
+        _flags_req_disp = [f for f in FLAGS_AUDITORIA if f in df_auditoria.columns]
+        req_criterios = st.multiselect(
+            "Critérios de Auditoria",
+            options=_flags_req_disp,
+            format_func=lambda f: nomes_flags.get(f, f),
+            default=[],
+            key="req_criterios",
+            placeholder="Todos os critérios",
+        )
+
+    # Aplicar filtros para montar df_req
+    df_req = df_auditoria.copy()
+    if req_operadoras:
+        df_req = df_req[df_req["operadora"].astype(str).isin(req_operadoras)]
+    if req_status and COL_AUD_STATUS_DISPOSITIVO in df_req.columns:
+        df_req = df_req[df_req[COL_AUD_STATUS_DISPOSITIVO].astype(str).str.upper().isin(req_status)]
+    if req_criterios:
+        mask_crit = pd.Series(False, index=df_req.index)
+        for flag in req_criterios:
+            if flag in df_req.columns:
+                mask_crit = mask_crit | df_req[flag].eq(True)
+        df_req = df_req[mask_crit]
+
+    st.info(f"Linhas que serão incluídas no documento: **{len(df_req):,}**")
+    st.divider()
 
     col_r1, col_r2 = st.columns(2)
     with col_r1:
@@ -1695,7 +1750,7 @@ with st.expander("📄 Gerar Requerimento Administrativo — M2Data (Cancelament
 
     if _pdf_export_disponivel():
         req_pdf = _gerar_requerimento_m2data_bytes(
-            df_export,
+            df_req,
             nome_presidente=req_nome,
             cnpj=req_cnpj,
             cpf=req_cpf,
