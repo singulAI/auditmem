@@ -12,11 +12,14 @@ apt update
 apt install -y python3-venv python3-pip nginx git
 
 echo "[2/8] Preparando diretorio da aplicacao"
+git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
 if [[ ! -d "$APP_DIR/.git" ]]; then
   git clone -b "$BRANCH" "$REPO_URL" "$APP_DIR"
 else
   git -C "$APP_DIR" fetch origin
   git -C "$APP_DIR" checkout "$BRANCH"
+  # Descartar arquivos locais que conflitem com o repositório
+  git -C "$APP_DIR" checkout -- . 2>/dev/null || true
   git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
 fi
 
